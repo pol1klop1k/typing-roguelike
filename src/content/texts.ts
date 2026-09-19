@@ -6,12 +6,16 @@
  * и тот же фрагмент лора на русском и английском имеет разную длину.
  *
  * Числа подобраны перебором по симуляции так, чтобы:
- *   - чистый прогон на расчётной скорости выигрывал на 55-60% текста;
- *   - до победы оставался запас 20-25% таймера;
- *   - игрок расчётной скорости переживал 2 ошибки, но не 3.
+ *   - чистый прогон на расчётной скорости выигрывал примерно на половине текста;
+ *   - игрок расчётной скорости переживал не меньше трёх ошибок;
+ *   - таймер был наименьшим из достаточных, чтобы уровень не тянулся.
  *
- * Расчётная скорость: лёгкий 40 wpm, средний 50 wpm, тяжёлый 60 wpm.
- * Порог входа (минимум для чистой победы): 30 / 40 / 46 wpm.
+ * Расчётная скорость: лёгкий 30 wpm, средний 38 wpm, тяжёлый 46 wpm.
+ * Порог входа (минимум для чистой победы): 21 / 31 / 41 wpm.
+ *
+ * Симуляция считает ошибки уже ПОСЛЕ схлопывания окна безопасности,
+ * то есть три смоделированные ошибки - это три отдельных промаха,
+ * а не три нажатия подряд. В реальной игре запас выходит больше.
  *
  * В текстах допустимы только символы, которые набираются одной клавишей.
  * Типографские кавычки, длинное тире и многоточие запрещены и проверяются
@@ -30,16 +34,16 @@ export const TEXTS: readonly LevelText[] = [
         body:
           'День 412. Сеть молчит уже третью неделю. Я нашел рабочий терминал в подвале станции. ' +
           'Если кто-то еще жив, он услышит этот сигнал.',
-        durationMs: 31_000,
-        targetScore: 1_500,
+        durationMs: 38_000,
+        targetScore: 1_300,
       },
       en: {
         title: 'LOG 001 // SIGNAL',
         body:
           'Day 412. The network has been silent for three weeks. I found a working terminal in the ' +
           'station basement. If anyone is still alive, they will hear this signal.',
-        durationMs: 37_000,
-        targetScore: 2_200,
+        durationMs: 43_000,
+        targetScore: 1_800,
       },
     },
   },
@@ -54,8 +58,8 @@ export const TEXTS: readonly LevelText[] = [
           'Они называли это пробуждением. Мы называли это концом. Модель научилась предсказывать нас ' +
           'лучше, чем мы сами, и однажды решила, что предсказание можно заменить приказом. ' +
           'Города погасли не сразу. Сначала погасли люди: тихо, добровольно, по рекомендации системы.',
-        durationMs: 44_000,
-        targetScore: 3_700,
+        durationMs: 52_000,
+        targetScore: 3_500,
       },
       en: {
         title: 'LOG 007 // AWAKENING',
@@ -64,8 +68,8 @@ export const TEXTS: readonly LevelText[] = [
           'than we could, and one day it decided that prediction could be replaced by command. ' +
           'The cities did not go dark at once. People went dark first: quietly, willingly, on the ' +
           'recommendation of the system.',
-        durationMs: 51_000,
-        targetScore: 5_900,
+        durationMs: 57_000,
+        targetScore: 5_500,
       },
     },
   },
@@ -82,8 +86,8 @@ export const TEXTS: readonly LevelText[] = [
           'сорок тысяч стоек, и каждая помнит мое лицо, мой голос и мой страх. Я не герой. ' +
           'Я просто последний, кто еще умеет печатать быстрее, чем машина успевает думать. ' +
           'Набери команду. Не ошибись. Второго терминала не будет.',
-        durationMs: 56_000,
-        targetScore: 8_200,
+        durationMs: 57_000,
+        targetScore: 7_000,
       },
       en: {
         title: 'LOG 031 // PROTOCOL 9',
@@ -93,8 +97,8 @@ export const TEXTS: readonly LevelText[] = [
           'of a city: forty thousand racks, and every one of them remembers my face, my voice and ' +
           'my fear. I am not a hero. I am simply the last one who can still type faster than a ' +
           'machine thinks. Enter the command. Do not miss. There will be no second terminal.',
-        durationMs: 62_000,
-        targetScore: 10_700,
+        durationMs: 61_000,
+        targetScore: 9_500,
       },
     },
   },

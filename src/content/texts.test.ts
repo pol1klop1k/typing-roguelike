@@ -71,10 +71,10 @@ describe.each(TEXTS)('текст $id', (text) => {
       expect(snapshot.phase).toBe('won')
     })
 
-    it('честен: цель берётся на 50-80% текста, а не мгновенно', () => {
+    it('честен: цель берётся примерно на половине текста, а не мгновенно', () => {
       const snapshot = playPerfectly(variant, variant.targetScore)
       const fraction = snapshot.cursor / variant.body.length
-      expect(fraction).toBeGreaterThan(0.5)
+      expect(fraction).toBeGreaterThan(0.45)
       expect(fraction).toBeLessThan(0.8)
     })
 
@@ -82,9 +82,9 @@ describe.each(TEXTS)('текст $id', (text) => {
       const snapshot = playPerfectly(variant, variant.targetScore)
       const minutes = variant.durationMs / 60_000
       const requiredCpm = snapshot.cursor / minutes
-      // от 28 до 55 слов в минуту при идеальной точности
-      expect(requiredCpm).toBeGreaterThan(140)
-      expect(requiredCpm).toBeLessThan(275)
+      // примерно от 19 до 48 слов в минуту при идеальной точности
+      expect(requiredCpm).toBeGreaterThan(95)
+      expect(requiredCpm).toBeLessThan(240)
     })
 
     it('укладывается в разумную длину уровня', () => {

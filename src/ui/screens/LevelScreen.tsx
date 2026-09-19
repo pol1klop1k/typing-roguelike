@@ -103,6 +103,9 @@ export function LevelScreen() {
         setFlash(true)
         window.setTimeout(() => setFlash(false), 160)
         void shake.start({ x: [0, -10, 8, -6, 4, 0], transition: { duration: 0.26 } })
+      } else if (outcome.kind === 'safe') {
+        // Промах по инерции: обозначаем, но не пугаем. Ни вспышки, ни тряски.
+        sfx.safeMiss()
       }
     }
 
@@ -162,6 +165,7 @@ export function LevelScreen() {
             words={session.words}
             cursor={snapshot.cursor}
             hasError={snapshot.wrongKey !== null}
+            safeWindow={snapshot.safeWindow}
           />
 
           <AnimatePresence>

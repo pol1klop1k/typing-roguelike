@@ -93,7 +93,7 @@ describe('начисление очков', () => {
 })
 
 describe('ошибки', () => {
-  it('сбрасывают множитель и отнимают время', () => {
+  it('снижают множитель и отнимают время', () => {
     const session = makeSession()
     typeText(session, 'ab ')
     expect(session.snapshot.mult).toBeCloseTo(1.2)
@@ -116,15 +116,17 @@ describe('ошибки', () => {
   it('не штрафуют за долбление по той же самой неверной клавише', () => {
     const session = makeSession()
     session.pressKey('z', START + 1)
-    expect(session.pressKey('z', START + 2)).toEqual({ kind: 'ignored' })
-    expect(session.pressKey('z', START + 3)).toEqual({ kind: 'ignored' })
+    // намеренно за пределами окна безопасности: проверяем именно защиту
+    // от повторов, а не окно
+    expect(session.pressKey('z', START + 1_000)).toEqual({ kind: 'ignored' })
+    expect(session.pressKey('z', START + 2_000)).toEqual({ kind: 'ignored' })
     expect(session.snapshot.errors).toBe(1)
   })
 
-  it('штрафуют снова, если игрок промахнулся по-новому', () => {
+  it('штрафуют снова, если игрок промахнулся по-новому после окна', () => {
     const session = makeSession()
     session.pressKey('z', START + 1)
-    expect(session.pressKey('x', START + 2)).toEqual({ kind: 'error', penaltyMs: 2_000 })
+    expect(session.pressKey('x', START + 1_000)).toEqual({ kind: 'error', penaltyMs: 2_000 })
     expect(session.snapshot.errors).toBe(2)
   })
 
@@ -144,6 +146,85 @@ describe('ошибки', () => {
     expect(session.snapshot.wrongKey).toBeNull()
     // тот же 'z' на новой позиции снова считается ошибкой
     expect(session.pressKey('z', START + 3)).toEqual({ kind: 'error', penaltyMs: 2_000 })
+  })
+})
+
+describe('снижение множителя', () => {
+  /** Восемь чистых слов подряд поднимают множитель до x2.6. */
+  function sessionWithHighMult(): LevelSession {
+    const session = makeSession({ text: 'aa bb cc dd ee ff gg hh ii jj' })
+    typeText(session, 'aa bb cc dd ee ff gg hh ')
+    return session
+  }
+
+  it('вычитает фиксированную величину, а не обнуляет', () => {
+    const session = sessionWithHighMult()
+    expect(session.snapshot.mult).toBeCloseTo(2.6)
+    session.pressKey('z', START + 100)
+    expect(session.snapshot.mult).toBeCloseTo(2.6 - BALANCE.multLossOnError)
+  })
+
+  it('не опускает множитель ниже стартового', () => {
+    const session = makeSession()
+    session.pressKey('z', START + 1)
+    expect(session.snapshot.mult).toBe(BALANCE.multStart)
+    session.pressKey('x', START + 1_000)
+    expect(session.snapshot.mult).toBe(BALANCE.multStart)
+  })
+
+  it('копится: две отдельные ошибки снимают вдвое больше', () => {
+    const session = sessionWithHighMult()
+    session.pressKey('z', START + 100)
+    session.pressKey('x', START + 1_100)
+    expect(session.snapshot.mult).toBeCloseTo(2.6 - BALANCE.multLossOnError * 2)
+  })
+})
+
+describe('окно безопасности после ошибки', () => {
+  it('не штрафует промахи, сделанные по инерции', () => {
+    const session = makeSession()
+    session.pressKey('z', START + 1)
+    expect(session.pressKey('x', START + 100)).toEqual({ kind: 'safe' })
+    expect(session.pressKey('y', START + 300)).toEqual({ kind: 'safe' })
+    expect(session.snapshot.errors).toBe(1)
+  })
+
+  it('не отнимает за них ни времени, ни множителя', () => {
+    const session = makeSession({ text: 'aa bb cc dd ee ff' })
+    typeText(session, 'aa bb cc dd ee ')
+    session.pressKey('z', START + 100)
+
+    const afterError = session.snapshot
+    session.pressKey('x', START + 200)
+    session.pressKey('y', START + 300)
+
+    expect(session.snapshot.mult).toBe(afterError.mult)
+    expect(session.snapshot.timeLeftMs).toBe(afterError.timeLeftMs - 200)
+  })
+
+  it('закрывается по истечении срока', () => {
+    const session = makeSession()
+    session.pressKey('z', START + 1)
+    const windowEnds = START + BALANCE.errorSafeWindowMs
+    expect(session.pressKey('x', windowEnds - 1)).toEqual({ kind: 'safe' })
+    // другой клавишей, иначе сработает защита от повторного нажатия того же символа
+    expect(session.pressKey('q', windowEnds + 1)).toEqual({ kind: 'error', penaltyMs: 2_000 })
+  })
+
+  it('закрывается досрочно, как только нажат верный символ', () => {
+    const session = makeSession()
+    session.pressKey('z', START + 1)
+    session.pressKey('a', START + 50) // верный символ закрывает окно
+    expect(session.pressKey('z', START + 100)).toEqual({ kind: 'error', penaltyMs: 2_000 })
+  })
+
+  it('виден интерфейсу, чтобы тот мог показать промах другим цветом', () => {
+    const session = makeSession()
+    expect(session.snapshot.safeWindow).toBe(false)
+    session.pressKey('z', START + 1)
+    expect(session.snapshot.safeWindow).toBe(true)
+    session.tick(START + BALANCE.errorSafeWindowMs + 1)
+    expect(session.snapshot.safeWindow).toBe(false)
   })
 })
 

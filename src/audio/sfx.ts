@@ -114,6 +114,14 @@ class Sfx {
     this.tone(150, 0.16, { wave: 'sawtooth', gain: 0.16, slideTo: 90 })
   }
 
+  /**
+   * Промах внутри окна безопасности. Слышно, что мимо, но без наказания:
+   * глухой щелчок вместо зуммера.
+   */
+  safeMiss(): void {
+    this.click(0.2, 700)
+  }
+
   /** Слово превратилось в очки. Чем выше множитель, тем выше нота. */
   word(mult: number): void {
     const step = Math.min(12, Math.round((mult - 1) / 0.2))

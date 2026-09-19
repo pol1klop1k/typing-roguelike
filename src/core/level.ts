@@ -46,6 +46,8 @@ export type KeyOutcome =
   | { readonly kind: 'ignored' }
   | { readonly kind: 'correct'; readonly char: string; readonly wordScored: WordScored | null }
   | { readonly kind: 'error'; readonly penaltyMs: number }
+  /** Промах внутри окна после ошибки: помечен, но ничего не стоил. */
+  | { readonly kind: 'safe' }
   /** Нажата буква чужого алфавита — это не ошибка игрока, а не та раскладка. */
   | { readonly kind: 'layout' }
 
@@ -73,6 +75,7 @@ export class LevelSession {
   private correctChars = 0
   private wrongKey: string | null = null
   private layoutStreak = 0
+  private safeWindowUntil = 0
   private layoutMismatch = false
   private lossReason: LossReason | null = null
 
@@ -142,6 +145,13 @@ export class LevelSession {
       return { kind: 'layout' }
     }
 
+    // Инерция: осознав промах, человек успевает добить ещё символ-другой
+    // по привычке. Эти нажатия помечаются, но не стоят ничего.
+    if (now < this.safeWindowUntil) {
+      this.wrongKey = key
+      return { kind: 'safe' }
+    }
+
     // Паническое долбление по одной и той же неверной клавише
     // не должно съедать таймер пачкой штрафов.
     if (key === this.wrongKey) return { kind: 'ignored' }
@@ -167,6 +177,7 @@ export class LevelSession {
     this.wrongKey = null
     this.layoutStreak = 0
     this.layoutMismatch = false
+    this.safeWindowUntil = 0
 
     let wordScored: WordScored | null = null
     const word = this.words[this.wordIndex]
@@ -223,9 +234,10 @@ export class LevelSession {
   private rejectChar(key: string): KeyOutcome {
     this.errors++
     this.combo = 0
-    this.mult = BALANCE.multOnError
+    this.mult = Math.max(BALANCE.multStart, this.mult - BALANCE.multLossOnError)
     this.errorInWord = true
     this.wrongKey = key
+    this.safeWindowUntil = this.now + BALANCE.errorSafeWindowMs
 
     runHook(this.modifiers, 'onCharError', { snapshot: this.snapshot })
 
@@ -278,6 +290,7 @@ export class LevelSession {
       countdownLeftMs:
         this.phase === 'countdown' ? Math.max(0, this.countdownEndsAt - this.now) : 0,
       wrongKey: this.wrongKey,
+      safeWindow: this.phase === 'running' && this.now < this.safeWindowUntil,
       layoutMismatch: this.layoutMismatch,
       lossReason: this.lossReason,
     }

@@ -50,6 +50,8 @@ export interface LevelSnapshot {
   readonly countdownLeftMs: number
   /** Последняя неверно нажатая клавиша — для подсветки. */
   readonly wrongKey: string | null
+  /** Идёт окно после ошибки: промахи сейчас ничего не стоят. */
+  readonly safeWindow: boolean
   /** Игрок печатает не в той раскладке — показать подсказку. */
   readonly layoutMismatch: boolean
   readonly lossReason: LossReason | null
