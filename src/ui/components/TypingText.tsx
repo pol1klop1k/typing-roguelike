@@ -67,5 +67,11 @@ const CLASSES: Record<CharState, string> = {
 function Char({ char, state }: { char: string; state: CharState }) {
   // Пробел под курсором иначе не виден — подчёркиваем его нижним подчёркиванием.
   const visible = char === ' ' && state !== 'typed' && state !== 'pending' ? '_' : char
-  return <span className={CLASSES[state]}>{visible}</span>
+  // Метка нужна интерфейсу, чтобы привязать вылетающие очки к позиции курсора.
+  const isCursor = state !== 'typed' && state !== 'pending'
+  return (
+    <span className={CLASSES[state]} data-cursor={isCursor ? '' : undefined}>
+      {visible}
+    </span>
+  )
 }

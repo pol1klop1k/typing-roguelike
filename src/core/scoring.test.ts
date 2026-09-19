@@ -33,8 +33,9 @@ describe('timePenaltyMs', () => {
     expect(timePenaltyMs(1)).toBe(1_000)
     expect(timePenaltyMs(2)).toBe(2_000)
     expect(timePenaltyMs(3)).toBe(3_000)
-    expect(timePenaltyMs(5)).toBe(5_000)
-    expect(timePenaltyMs(6)).toBe(BALANCE.errorPenaltyMaxMs)
+    // дальше не растёт: 1, 2, 3, 3, 3...
+    expect(timePenaltyMs(4)).toBe(3_000)
+    expect(timePenaltyMs(5)).toBe(BALANCE.errorPenaltyMaxMs)
     expect(timePenaltyMs(50)).toBe(BALANCE.errorPenaltyMaxMs)
   })
 })

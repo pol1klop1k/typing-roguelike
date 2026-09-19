@@ -37,6 +37,7 @@ export function LevelScreen() {
   const [popups, setPopups] = useState<readonly ScorePopup[]>([])
   const [flash, setFlash] = useState(false)
   const popupId = useRef(0)
+  const textAreaRef = useRef<HTMLDivElement>(null)
   const lastCountdownBeep = useRef(-1)
   const lastLowTimeBeep = useRef(-1)
 
@@ -90,9 +91,10 @@ export function LevelScreen() {
           const scored = outcome.wordScored
           sfx.word(scored.mult)
           const id = popupId.current++
+          const { x, y } = cursorPosition(textAreaRef.current)
           setPopups((current) => [
             ...current,
-            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult },
+            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, x, y },
           ])
           window.setTimeout(() => {
             setPopups((current) => current.filter((popup) => popup.id !== id))
@@ -158,7 +160,10 @@ export function LevelScreen() {
       <motion.div animate={shake} className="flex min-h-0 flex-1 flex-col">
         <LevelHud snapshot={snapshot} />
 
-        <div className="relative min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-10">
+        <div
+          ref={textAreaRef}
+          className="relative min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-10"
+        >
           <ScorePopups popups={popups} />
 
           <TypingText
@@ -234,4 +239,23 @@ export function LevelScreen() {
       </AnimatePresence>
     </TerminalFrame>
   )
+}
+
+/**
+ * Позиция курсора внутри области текста.
+ *
+ * Читается синхронно в обработчике нажатия, то есть ещё до перерисовки —
+ * поэтому возвращает символ, который игрок только что добил. Это ровно то
+ * место, где в этот миг находится взгляд.
+ */
+function cursorPosition(container: HTMLDivElement | null): { x: number; y: number } {
+  const cursor = container?.querySelector('[data-cursor]')
+  if (!container || !cursor) return { x: 0, y: 0 }
+
+  const charBox = cursor.getBoundingClientRect()
+  const areaBox = container.getBoundingClientRect()
+  return {
+    x: charBox.left - areaBox.left + charBox.width / 2,
+    y: charBox.top - areaBox.top + container.scrollTop,
+  }
 }
