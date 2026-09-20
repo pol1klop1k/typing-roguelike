@@ -38,6 +38,14 @@ body {
   text-shadow: 0 0 6px color-mix(in srgb, currentColor 40%, transparent);
 }
 
+/* Раскалённое свечение: только для верхней ступени комбо. */
+.glow-hot {
+  text-shadow:
+    0 0 6px currentColor,
+    0 0 18px currentColor,
+    0 0 44px color-mix(in srgb, currentColor 70%, transparent);
+}
+
 /* Горизонтальные строки развёртки поверх всей картинки. */
 .scanlines::after {
   content: "";

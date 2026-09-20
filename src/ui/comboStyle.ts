@@ -4,25 +4,26 @@
  * Комбо считается в символах, а не в словах, поэтому пороги крупные:
  * одно слово даёт примерно 6 комбо, строка текста - около сорока.
  *
- * Эскалация идёт по трём каналам сразу - размер, цвет и пульсация.
- * Одного размера мало: во время печати периферийное зрение ловит смену
- * цвета лучше, чем изменение кегля.
+ * Ступень не подписана словами: её сообщают размер, цвет и - на верхней
+ * ступени - отдельный эффект. Текст во время печати всё равно не читается,
+ * взгляд занят набором.
  *
  * Красный сознательно не используется: он занят ошибками, и смешивать
  * "ты молодец" с "ты промахнулся" в одном цвете нельзя.
  */
-import type { Language } from '../core/types'
 
 export interface ComboTier {
   readonly level: 0 | 1 | 2 | 3
   /** Минимальное комбо для этой ступени. */
   readonly min: number
   readonly color: string
+  /** Кегль суммы в вылетающих очках. Шаг лесенки ровный, 0.375rem. */
   readonly popupSize: string
   readonly hudSize: string
-  /** Верхняя ступень дышит, чтобы её нельзя было не заметить. */
+  /** Верхняя ступень дышит в панели, чтобы её нельзя было не заметить. */
   readonly pulse: boolean
-  readonly name: Readonly<Record<Language, string>>
+  /** Верхняя ступень получает вспышку и тряску в вылетающих очках. */
+  readonly epic: boolean
 }
 
 const TIERS: readonly ComboTier[] = [
@@ -30,37 +31,37 @@ const TIERS: readonly ComboTier[] = [
     level: 0,
     min: 0,
     color: 'text-term-bright',
-    popupSize: 'text-4xl sm:text-5xl',
+    popupSize: 'text-[1.875rem] sm:text-[2.25rem]',
     hudSize: 'text-2xl',
     pulse: false,
-    name: { ru: '', en: '' },
+    epic: false,
   },
   {
     level: 1,
     min: 20,
     color: 'text-term',
-    popupSize: 'text-5xl sm:text-6xl',
+    popupSize: 'text-[2.25rem] sm:text-[2.75rem]',
     hudSize: 'text-3xl',
     pulse: false,
-    name: { ru: 'разгон', en: 'spin-up' },
+    epic: false,
   },
   {
     level: 2,
     min: 50,
     color: 'text-term-amber',
-    popupSize: 'text-6xl sm:text-7xl',
+    popupSize: 'text-[2.625rem] sm:text-[3.25rem]',
     hudSize: 'text-4xl',
     pulse: false,
-    name: { ru: 'перегрев', en: 'overheat' },
+    epic: false,
   },
   {
     level: 3,
     min: 100,
     color: 'text-term-amber',
-    popupSize: 'text-6xl sm:text-7xl',
+    popupSize: 'text-[3rem] sm:text-[3.75rem]',
     hudSize: 'text-5xl',
     pulse: true,
-    name: { ru: 'предел', en: 'redline' },
+    epic: true,
   },
 ]
 

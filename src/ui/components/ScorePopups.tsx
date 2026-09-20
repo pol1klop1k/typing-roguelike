@@ -1,5 +1,4 @@
 import { AnimatePresence, motion } from 'motion/react'
-import type { Language } from '../../core/types'
 import { comboTier } from '../comboStyle'
 
 export interface ScorePopup {
@@ -13,24 +12,16 @@ export interface ScorePopup {
   readonly y: number
 }
 
-const LABELS = { ru: 'комбо', en: 'combo' } as const
-
 /**
  * Вылетающие очки за засчитанное слово.
  *
  * Появляются вплотную к курсору, а не в углу экрана: во время печати взгляд
  * прикован к текущему символу и ничего за его пределами просто не замечает.
  *
- * Размер и цвет суммы растут вместе с комбо, поэтому серия видна боковым
- * зрением, не отвлекая от текста.
+ * Размер и цвет суммы растут вместе с комбо, а на верхней ступени
+ * добавляются вспышка и дрожь.
  */
-export function ScorePopups({
-  popups,
-  language,
-}: {
-  popups: readonly ScorePopup[]
-  language: Language
-}) {
+export function ScorePopups({ popups }: { popups: readonly ScorePopup[] }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-30 overflow-hidden">
       <AnimatePresence>
@@ -50,14 +41,24 @@ export function ScorePopups({
               exit={{ opacity: 0, y: -lift - 34, scale: 0.85 }}
               transition={{ type: 'spring', stiffness: 280, damping: 20 }}
             >
-              {tier.level > 0 ? (
-                <div className={`text-center text-xs tracking-[0.25em] whitespace-nowrap uppercase ${tier.color}`}>
-                  {LABELS[language]} {popup.combo} · {tier.name[language]}
-                </div>
-              ) : null}
+              <div className="relative">
+                {tier.epic ? <EpicBurst /> : null}
 
-              <div className={`glow text-center leading-none font-bold ${tier.popupSize} ${tier.color}`}>
-                +{popup.gained.toLocaleString('ru-RU')}
+                <motion.div
+                  className={`${tier.epic ? 'glow-hot' : 'glow'} text-center leading-none font-bold ${tier.popupSize} ${tier.color}`}
+                  animate={
+                    tier.epic
+                      ? { x: [0, -7, 7, -5, 5, -3, 3, 0], rotate: [0, -3.5, 3.5, -2, 2, -1, 0] }
+                      : { x: 0, rotate: 0 }
+                  }
+                  transition={
+                    tier.epic
+                      ? { duration: 0.45, repeat: Infinity, ease: 'easeInOut' }
+                      : { duration: 0 }
+                  }
+                >
+                  +{popup.gained.toLocaleString('ru-RU')}
+                </motion.div>
               </div>
 
               <div className="mt-1 text-center text-sm tracking-[0.2em] whitespace-nowrap text-term-muted">
@@ -68,5 +69,31 @@ export function ScorePopups({
         })}
       </AnimatePresence>
     </div>
+  )
+}
+
+/** Вспышка на верхней ступени комбо: две расходящиеся волны и сияние. */
+function EpicBurst() {
+  return (
+    <>
+      <motion.span
+        className="pointer-events-none absolute top-1/2 left-1/2 h-28 w-28 -translate-x-1/2 -translate-y-1/2 rounded-full bg-term-amber blur-2xl"
+        initial={{ scale: 0.2, opacity: 0.9 }}
+        animate={{ scale: 2.8, opacity: 0 }}
+        transition={{ duration: 0.75, ease: 'easeOut' }}
+      />
+      <motion.span
+        className="pointer-events-none absolute top-1/2 left-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-term-amber"
+        initial={{ scale: 0.3, opacity: 1 }}
+        animate={{ scale: 2.2, opacity: 0 }}
+        transition={{ duration: 0.55, ease: 'easeOut' }}
+      />
+      <motion.span
+        className="pointer-events-none absolute top-1/2 left-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-term-bright"
+        initial={{ scale: 0.3, opacity: 0.8 }}
+        animate={{ scale: 3.2, opacity: 0 }}
+        transition={{ duration: 0.8, ease: 'easeOut', delay: 0.12 }}
+      />
+    </>
   )
 }

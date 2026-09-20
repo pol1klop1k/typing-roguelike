@@ -82,11 +82,8 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
       <div className="col-span-full flex flex-wrap items-end gap-x-8 gap-y-3">
         {/* Комбо - главный индикатор серии, поэтому крупнее остальных счётчиков. */}
         <div className="flex min-w-32 flex-col gap-1">
-          <div className="flex items-baseline gap-2 text-[0.7rem] tracking-[0.25em] uppercase">
-            <span className="text-term-muted">{labels.combo}</span>
-            {tier.level > 0 ? (
-              <span className={`${tier.color} glow-soft`}>{tier.name[language]}</span>
-            ) : null}
+          <div className="text-[0.7rem] tracking-[0.25em] text-term-muted uppercase">
+            {labels.combo}
           </div>
           <motion.span
             // Рывок только при смене ступени: дёргать число на каждом

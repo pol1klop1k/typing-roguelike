@@ -165,7 +165,7 @@ export function LevelScreen() {
           ref={textAreaRef}
           className="relative min-h-0 flex-1 overflow-y-auto px-6 pt-24 pb-8 sm:px-10"
         >
-          <ScorePopups popups={popups} language={language} />
+          <ScorePopups popups={popups} />
 
           <TypingText
             words={session.words}
