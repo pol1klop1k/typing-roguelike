@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import { useEffect } from 'react'
 import { sfx } from '../../audio/sfx'
+import { TEXTS } from '../../content/texts'
 import { useGameStore } from '../../state/gameStore'
 import type { Language } from '../../core/types'
 import { TerminalButton } from '../components/TerminalButton'
@@ -14,6 +15,7 @@ const INTRO: Record<Language, readonly string[]> = {
     '',
     'Они забрали сеть. Терминал остался тебе.',
     'Печатай быстро. Каждая ошибка стоит времени, которого нет.',
+    'Между узлами есть склад. Снаряжение там стоит кредитов.',
   ],
   en: [
     'LOADING LOCAL TERMINAL...',
@@ -22,35 +24,35 @@ const INTRO: Record<Language, readonly string[]> = {
     '',
     'They took the network. The terminal is still yours.',
     'Type fast. Every mistake costs time you do not have.',
+    'Between nodes there is a depot. Gear there costs credits.',
   ],
 }
 
 const LABELS = {
-  ru: { start: 'Начать', language: 'Язык', sound: 'Звук', on: 'вкл', off: 'выкл', credits: 'Кредиты', hint: 'Enter — начать' },
-  en: { start: 'Start', language: 'Language', sound: 'Sound', on: 'on', off: 'off', credits: 'Credits', hint: 'Enter to start' },
+  ru: { start: 'Начать забег', language: 'Язык', sound: 'Звук', on: 'вкл', off: 'выкл', nodes: 'узлов', hint: 'Enter — начать' },
+  en: { start: 'Start a run', language: 'Language', sound: 'Sound', on: 'on', off: 'off', nodes: 'nodes', hint: 'Enter to start' },
 } as const
 
 export function MainMenu() {
   const language = useGameStore((state) => state.language)
   const soundEnabled = useGameStore((state) => state.soundEnabled)
-  const credits = useGameStore((state) => state.credits)
   const setLanguage = useGameStore((state) => state.setLanguage)
   const toggleSound = useGameStore((state) => state.toggleSound)
-  const openSelect = useGameStore((state) => state.openSelect)
+  const beginRun = useGameStore((state) => state.beginRun)
 
   const labels = LABELS[language]
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       sfx.unlock()
-      if (event.key === 'Enter') openSelect()
+      if (event.key === 'Enter') beginRun()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [openSelect])
+  }, [beginRun])
 
   return (
-    <TerminalFrame title="signal // boot" right={`${labels.credits}: ${credits}`}>
+    <TerminalFrame title="signal // boot" right={`${TEXTS.length} ${labels.nodes}`}>
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-10 overflow-y-auto px-6 py-8 sm:px-12">
         <div>
           <motion.h1
@@ -89,7 +91,7 @@ export function MainMenu() {
           <TerminalButton
             onClick={() => {
               sfx.unlock()
-              openSelect()
+              beginRun()
             }}
           >
             {labels.start}

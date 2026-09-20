@@ -1,26 +1,33 @@
 /**
  * Мост между ядром и интерфейсом.
  *
- * Здесь живёт только то, что нужно экранам: какой экран открыт, какой текст
- * выбран, текущий срез уровня. Правила игры целиком остаются в src/core.
+ * Здесь живёт только то, что нужно экранам: какой экран открыт, состояние
+ * забега, текущий срез уровня. Правила игры целиком остаются в src/core.
  */
 import { create } from 'zustand'
 import { sfx } from '../audio/sfx'
-import { ACTIVE_MODIFIERS } from '../content/modifiers'
-import { findText, TEXTS } from '../content/texts'
+import { findItem, ITEMS, modifiersFor } from '../content/items'
+import { TEXTS } from '../content/texts'
 import { LevelSession, type KeyOutcome } from '../core/level'
+import {
+  buyItem,
+  dropItem,
+  leaveShop,
+  loseLevel,
+  rerollOffers,
+  startRun,
+  winLevel,
+  type RunState,
+} from '../core/run'
 import type { Language, LevelResult, LevelSnapshot, LevelText, TextVariant } from '../core/types'
 
-export type Screen = 'menu' | 'select' | 'level' | 'results'
+export type Screen = 'menu' | 'level' | 'results' | 'shop'
 
 interface GameState {
   screen: Screen
   language: Language
   soundEnabled: boolean
-  /** Заглушка под будущий магазин: кредиты копятся, тратить их пока некуда. */
-  credits: number
-  texts: readonly LevelText[]
-  activeText: LevelText | null
+  run: RunState | null
   session: LevelSession | null
   snapshot: LevelSnapshot | null
   result: LevelResult | null
@@ -28,29 +35,45 @@ interface GameState {
   setLanguage: (language: Language) => void
   toggleSound: () => void
   openMenu: () => void
-  openSelect: () => void
-  selectText: (id: string) => void
+  /** Новый забег с нуля: кредиты и предметы обнуляются. */
+  beginRun: () => void
   startSession: (now: number) => void
   tick: (now: number) => void
   pressKey: (key: string, now: number) => KeyOutcome
+  /** Уровень закончился: итог применяется к забегу ровно один раз. */
   openResults: () => void
-  retry: () => void
+  /** С экрана итогов: в магазин, на финальный экран или в меню. */
+  continueRun: () => void
+  buy: (itemId: string) => void
+  drop: (index: number) => void
+  reroll: () => void
+  /** Из магазина на следующий уровень. */
+  nextLevel: () => void
 }
 
-/** Вариант выбранного текста на текущем языке. */
+/** Текст текущего уровня забега. */
+export function activeText(state: GameState): LevelText | null {
+  if (!state.run) return null
+  return TEXTS[state.run.levelIndex] ?? null
+}
+
+/** Вариант текущего текста на выбранном языке. */
 export function activeVariant(state: GameState): TextVariant | null {
-  if (!state.activeText) return null
-  return state.activeText.variants[state.language]
+  const text = activeText(state)
+  return text ? text.variants[state.language] : null
 }
 
-function createSession(text: LevelText, language: Language): LevelSession {
+function createSession(run: RunState, language: Language): LevelSession | null {
+  const text = TEXTS[run.levelIndex]
+  if (!text) return null
   const variant = text.variants[language]
+
   return new LevelSession({
     text: variant.body,
     targetScore: variant.targetScore,
     durationMs: variant.durationMs,
     reward: text.reward,
-    modifiers: ACTIVE_MODIFIERS,
+    modifiers: modifiersFor(run.items),
   })
 }
 
@@ -58,9 +81,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   screen: 'menu',
   language: 'ru',
   soundEnabled: true,
-  credits: 0,
-  texts: TEXTS,
-  activeText: null,
+  run: null,
   session: null,
   snapshot: null,
   result: null,
@@ -73,15 +94,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ soundEnabled })
   },
 
-  openMenu: () => set({ screen: 'menu', session: null, snapshot: null, result: null, activeText: null }),
+  openMenu: () => set({ screen: 'menu', run: null, session: null, snapshot: null, result: null }),
 
-  openSelect: () => set({ screen: 'select', session: null, snapshot: null, result: null }),
-
-  selectText: (id) => {
-    const text = findText(id)
-    if (!text) return
-    const session = createSession(text, get().language)
-    set({ screen: 'level', activeText: text, session, snapshot: session.snapshot, result: null })
+  beginRun: () => {
+    const run = startRun(Date.now(), TEXTS.length)
+    const session = createSession(run, get().language)
+    if (!session) return
+    set({ screen: 'level', run, session, snapshot: session.snapshot, result: null })
   },
 
   startSession: (now) => {
@@ -107,18 +126,51 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   openResults: () => {
-    const { screen, session } = get()
-    // Защита от повторного начисления: награда выдаётся ровно один раз.
-    if (screen !== 'level' || !session) return
+    const { screen, session, run } = get()
+    // Защита от повторного начисления: итог применяется ровно один раз.
+    if (screen !== 'level' || !session || !run) return
     const result = session.result
     if (!result) return
-    set((state) => ({ screen: 'results', result, credits: state.credits + result.reward }))
+
+    set({
+      screen: 'results',
+      result,
+      run: result.won ? winLevel(run, result.reward, ITEMS) : loseLevel(run),
+    })
   },
 
-  retry: () => {
-    const { activeText, language } = get()
-    if (!activeText) return
-    const session = createSession(activeText, language)
-    set({ screen: 'level', session, snapshot: session.snapshot, result: null })
+  continueRun: () => {
+    const { run } = get()
+    if (!run) return
+    if (run.phase === 'shop') set({ screen: 'shop' })
+    else get().openMenu()
+  },
+
+  buy: (itemId) => {
+    const { run } = get()
+    const item = findItem(itemId)
+    if (!run || !item) return
+    set({ run: buyItem(run, item) })
+  },
+
+  drop: (index) => {
+    const { run } = get()
+    if (!run) return
+    set({ run: dropItem(run, index) })
+  },
+
+  reroll: () => {
+    const { run } = get()
+    if (!run) return
+    set({ run: rerollOffers(run, ITEMS) })
+  },
+
+  nextLevel: () => {
+    const { run, language } = get()
+    if (!run) return
+    const next = leaveShop(run)
+    const session = createSession(next, language)
+    if (!session) return
+    set({ screen: 'level', run: next, session, snapshot: session.snapshot, result: null })
   },
 }))

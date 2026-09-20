@@ -27,9 +27,14 @@ function playPerfectly(variant: TextVariant, targetScore: number) {
 }
 
 describe('каталог текстов', () => {
-  it('содержит три текста разной сложности', () => {
-    expect(TEXTS).toHaveLength(3)
-    expect(TEXTS.map((t) => t.difficulty)).toEqual(['easy', 'normal', 'hard'])
+  it('выстроен по возрастанию сложности: это порядок уровней забега', () => {
+    const rank = { easy: 0, normal: 1, hard: 2 }
+    const ranks = TEXTS.map((t) => rank[t.difficulty])
+    expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
+  })
+
+  it('содержит все три сложности', () => {
+    expect(new Set(TEXTS.map((t) => t.difficulty))).toEqual(new Set(['easy', 'normal', 'hard']))
   })
 
   it('не содержит повторяющихся идентификаторов', () => {

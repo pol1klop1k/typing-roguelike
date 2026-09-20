@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import { useEffect } from 'react'
-import { useGameStore } from '../../state/gameStore'
+import { activeText, useGameStore } from '../../state/gameStore'
+import { ItemBar } from '../components/ItemBar'
 import { TerminalButton } from '../components/TerminalButton'
 import { TerminalFrame } from '../components/TerminalFrame'
 
@@ -20,11 +21,17 @@ const LABELS = {
     credits: 'кредитов',
     creditsTitle: 'Кредиты',
     log: 'Расшифровка записи',
-    retry: 'Ещё раз',
-    another: 'Другая цель',
     menu: 'В меню',
-    hint: 'Enter — ещё раз, Esc — к выбору',
     cpm: 'зн/мин',
+    node: 'Узел',
+    toShop: 'На склад',
+    complete: 'ЗАБЕГ ПРОЙДЕН',
+    completeSub: 'Все узлы взяты. Девятый узел ждёт в следующей версии.',
+    over: 'ЗАБЕГ ОКОНЧЕН',
+    overSub: 'Предметы и кредиты потеряны. В роглайте это называется опытом.',
+    again: 'Новый забег',
+    hintShop: 'Enter — на склад',
+    hintOver: 'Enter — новый забег, Esc — в меню',
   },
   en: {
     won: 'NODE BREACHED',
@@ -41,56 +48,85 @@ const LABELS = {
     credits: 'credits',
     creditsTitle: 'Credits',
     log: 'Recovered log',
-    retry: 'Retry',
-    another: 'Another target',
     menu: 'Menu',
-    hint: 'Enter to retry, Esc to choose again',
     cpm: 'cpm',
+    node: 'Node',
+    toShop: 'To the depot',
+    complete: 'RUN COMPLETE',
+    completeSub: 'Every node taken. The ninth node waits in a future build.',
+    over: 'RUN OVER',
+    overSub: 'Items and credits are gone. In a roguelike that is called experience.',
+    again: 'New run',
+    hintShop: 'Enter for the depot',
+    hintOver: 'Enter for a new run, Esc for the menu',
   },
 } as const
 
 export function ResultsScreen() {
   const result = useGameStore((state) => state.result)
+  const run = useGameStore((state) => state.run)
   const language = useGameStore((state) => state.language)
-  const activeText = useGameStore((state) => state.activeText)
-  const credits = useGameStore((state) => state.credits)
-  const retry = useGameStore((state) => state.retry)
-  const openSelect = useGameStore((state) => state.openSelect)
+  const text = useGameStore(activeText)
+  const continueRun = useGameStore((state) => state.continueRun)
+  const beginRun = useGameStore((state) => state.beginRun)
   const openMenu = useGameStore((state) => state.openMenu)
 
   const labels = LABELS[language]
+  const finished = run !== null && run.phase !== 'shop'
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Enter') retry()
-      if (event.key === 'Escape') openSelect()
+      if (event.key === 'Enter') {
+        if (finished) beginRun()
+        else continueRun()
+      }
+      if (event.key === 'Escape') openMenu()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [retry, openSelect])
+  }, [finished, beginRun, continueRun, openMenu])
 
-  if (!result || !activeText) return null
+  if (!result || !text || !run) return null
 
-  const variant = activeText.variants[language]
-  const heading = result.won
-    ? labels.won
-    : result.lossReason === 'time'
-      ? labels.lostTime
-      : labels.lostText
+  const variant = text.variants[language]
+
+  // Заголовок говорит про забег, а не про уровень: взятый узел в середине
+  // забега и последний узел - это разные события, даже если счёт одинаков.
+  const heading = !result.won
+    ? labels.over
+    : run.phase === 'complete'
+      ? labels.complete
+      : labels.won
+
+  const subtitle = !result.won
+    ? result.lossReason === 'time'
+      ? labels.lostTime + '. ' + labels.overSub
+      : labels.lostText + '. ' + labels.overSub
+    : run.phase === 'complete'
+      ? labels.completeSub
+      : null
 
   return (
-    <TerminalFrame title={variant.title} right={`${labels.creditsTitle}: ${credits}`}>
+    <TerminalFrame
+      title={`${labels.node} ${run.levelIndex + 1}/${run.totalLevels} // ${variant.title}`}
+      right={`${labels.creditsTitle}: ${run.credits}`}
+    >
+      <ItemBar items={run.items} language={language} />
+
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-8 sm:px-10">
-        <motion.h2
-          className={`glow text-3xl tracking-[0.3em] sm:text-4xl ${
-            result.won ? 'text-term-bright' : 'text-term-red'
-          }`}
-          initial={{ opacity: 0, scale: 1.2 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'spring', stiffness: 260, damping: 18 }}
-        >
-          {heading}
-        </motion.h2>
+        <div>
+          <motion.h2
+            className={`glow text-3xl tracking-[0.3em] sm:text-4xl ${
+              result.won ? 'text-term-bright' : 'text-term-red'
+            }`}
+            initial={{ opacity: 0, scale: 1.2 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'spring', stiffness: 260, damping: 18 }}
+          >
+            {heading}
+          </motion.h2>
+          {subtitle ? <p className="mt-2 text-sm text-term-muted">{subtitle}</p> : null}
+        </div>
 
         <motion.dl
           className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4"
@@ -126,14 +162,17 @@ export function ResultsScreen() {
         </motion.section>
 
         <div className="mt-auto flex flex-wrap items-center gap-4 pt-2">
-          <TerminalButton onClick={retry}>{labels.retry}</TerminalButton>
-          <TerminalButton variant="ghost" onClick={openSelect}>
-            {labels.another}
-          </TerminalButton>
+          {finished ? (
+            <TerminalButton onClick={beginRun}>{labels.again}</TerminalButton>
+          ) : (
+            <TerminalButton onClick={continueRun}>{labels.toShop}</TerminalButton>
+          )}
           <TerminalButton variant="ghost" onClick={openMenu}>
             {labels.menu}
           </TerminalButton>
-          <span className="text-xs tracking-widest text-term-dim uppercase">{labels.hint}</span>
+          <span className="text-xs tracking-widest text-term-dim uppercase">
+            {finished ? labels.hintOver : labels.hintShop}
+          </span>
         </div>
       </div>
     </TerminalFrame>

@@ -3,13 +3,13 @@ import { useGameStore } from './state/gameStore'
 import { LevelScreen } from './ui/screens/LevelScreen'
 import { MainMenu } from './ui/screens/MainMenu'
 import { ResultsScreen } from './ui/screens/ResultsScreen'
-import { TextSelect } from './ui/screens/TextSelect'
+import { ShopScreen } from './ui/screens/ShopScreen'
 
 const SCREENS = {
   menu: MainMenu,
-  select: TextSelect,
   level: LevelScreen,
   results: ResultsScreen,
+  shop: ShopScreen,
 }
 
 export function App() {

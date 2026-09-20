@@ -7,7 +7,7 @@
  * и озвучить, — задача интерфейса.
  */
 import { BALANCE } from './balance'
-import { runHook, type Modifier } from './effects'
+import { ModifierRuntime, type Modifier } from './effects'
 import {
   computeAccuracy,
   computeCpm,
@@ -45,6 +45,12 @@ export interface WordScored {
 export type KeyOutcome =
   | { readonly kind: 'ignored' }
   | { readonly kind: 'correct'; readonly char: string; readonly wordScored: WordScored | null }
+  /**
+   * Промах, который предмет превратил в верный символ. Игрок не потерял
+   * ничего. Какой именно предмет сработал, интерфейс видит по статусам
+   * в срезе уровня — отдельное поле здесь было бы вторым источником правды.
+   */
+  | { readonly kind: 'forgiven'; readonly char: string; readonly wordScored: WordScored | null }
   | { readonly kind: 'error'; readonly penaltyMs: number }
   /** Промах внутри окна после ошибки: помечен, но ничего не стоил. */
   | { readonly kind: 'safe' }
@@ -60,7 +66,7 @@ export class LevelSession {
   readonly durationMs: number
   readonly reward: number
 
-  private readonly modifiers: readonly Modifier[]
+  private readonly runtime: ModifierRuntime
 
   private phase: LevelSnapshot['phase'] = 'idle'
   private cursor = 0
@@ -91,7 +97,7 @@ export class LevelSession {
     this.targetScore = config.targetScore
     this.durationMs = config.durationMs
     this.reward = config.reward
-    this.modifiers = config.modifiers ?? []
+    this.runtime = new ModifierRuntime(config.modifiers ?? [])
   }
 
   /** Запускает отсчёт 3-2-1. Таймер уровня пойдёт после него. */
@@ -100,7 +106,13 @@ export class LevelSession {
     this.now = now
     this.phase = 'countdown'
     this.countdownEndsAt = now + BALANCE.countdownMs
-    runHook(this.modifiers, 'onLevelStart', { snapshot: this.snapshot })
+    // Стартовый множитель - это данные, а не константа: предмет вроде
+    // «Фальстарта» поднимает его, не трогая ядро.
+    this.mult = this.runtime.run('onLevelStart', now, {
+      snapshot: this.snapshot,
+      now,
+      mult: this.mult,
+    }).mult
   }
 
   /** Продвигает часы. Вызывается каждый кадр и не считает ничего, кроме времени. */
@@ -116,8 +128,9 @@ export class LevelSession {
 
     if (this.phase !== 'running') return
 
-    const context = runHook(this.modifiers, 'onTick', {
+    const context = this.runtime.run('onTick', now, {
       snapshot: this.snapshot,
+      now,
       deltaMs: now - this.startedAt,
       addTimeMs: 0,
     })
@@ -135,7 +148,20 @@ export class LevelSession {
     const expected = this.text[this.cursor]
     if (expected === undefined) return { kind: 'ignored' }
 
-    if (key === expected) return this.acceptChar(expected)
+    // Что считается верным вводом, решают предметы: «Регистр» разрешает
+    // писать заглавные строчными. Проверка стоит первой, потому что она
+    // определяет само понятие ошибки.
+    const check = this.runtime.run('onKeyCheck', now, {
+      snapshot: this.snapshot,
+      now,
+      key,
+      expected,
+      accepted: key === expected,
+    })
+    if (check.accepted) {
+      const wordScored = this.acceptChar(expected)
+      return { kind: 'correct', char: expected, wordScored }
+    }
 
     // Буква чужого алфавита почти наверняка значит не ту раскладку, а не ошибку.
     // Штрафовать за это — значит убивать человека, который даже не понял, что происходит.
@@ -156,12 +182,29 @@ export class LevelSession {
     // не должно съедать таймер пачкой штрафов.
     if (key === this.wrongKey) return { kind: 'ignored' }
 
+    // Промах настоящий. Он пережил окно безопасности и защиту от долбления,
+    // поэтому предмет вроде «Второго шанса» тратится только на него.
+    const failure = this.runtime.run('onCharError', now, {
+      snapshot: this.snapshot,
+      now,
+      key,
+      expected,
+      forgiven: false,
+    })
+
+    if (failure.forgiven) {
+      const wordScored = this.acceptChar(expected)
+      return { kind: 'forgiven', char: expected, wordScored }
+    }
+
     return this.rejectChar(key)
   }
 
-  private acceptChar(char: string): KeyOutcome {
-    const context = runHook(this.modifiers, 'onCharCorrect', {
+  /** Засчитывает символ под курсором и возвращает слово, если оно закрылось. */
+  private acceptChar(char: string): WordScored | null {
+    const context = this.runtime.run('onCharCorrect', this.now, {
       snapshot: this.snapshot,
+      now: this.now,
       char,
       isDigit: char >= '0' && char <= '9',
       isUpperCase: char !== char.toLowerCase(),
@@ -189,14 +232,15 @@ export class LevelSession {
       this.finish('lost', 'textExhausted')
     }
 
-    return { kind: 'correct', char, wordScored }
+    return wordScored
   }
 
   private completeWord(word: WordSegment): WordScored {
     const cleanWord = !this.errorInWord
 
-    const calc = runHook(this.modifiers, 'onScoreCalc', {
+    const calc = this.runtime.run('onScoreCalc', this.now, {
       snapshot: this.snapshot,
+      now: this.now,
       word: word.text,
       cleanWord,
       chips: this.wordChips,
@@ -206,8 +250,9 @@ export class LevelSession {
     const gained = scoreWord(calc.chips, calc.mult)
     this.score += gained
 
-    const after = runHook(this.modifiers, 'onWordComplete', {
+    const after = this.runtime.run('onWordComplete', this.now, {
       snapshot: this.snapshot,
+      now: this.now,
       word: word.text,
       cleanWord,
       gained,
@@ -239,10 +284,9 @@ export class LevelSession {
     this.wrongKey = key
     this.safeWindowUntil = this.now + BALANCE.errorSafeWindowMs
 
-    runHook(this.modifiers, 'onCharError', { snapshot: this.snapshot })
-
-    const context = runHook(this.modifiers, 'onTimePenalty', {
+    const context = this.runtime.run('onTimePenalty', this.now, {
       snapshot: this.snapshot,
+      now: this.now,
       errorIndex: this.errors,
       penaltyMs: timePenaltyMs(this.errors),
     })
@@ -258,7 +302,7 @@ export class LevelSession {
     this.phase = phase
     this.lossReason = reason
     this.endedAt = this.now
-    runHook(this.modifiers, 'onLevelEnd', { snapshot: this.snapshot })
+    this.runtime.run('onLevelEnd', this.now, { snapshot: this.snapshot, now: this.now })
   }
 
   get snapshot(): LevelSnapshot {
@@ -293,6 +337,7 @@ export class LevelSession {
       safeWindow: this.phase === 'running' && this.now < this.safeWindowUntil,
       layoutMismatch: this.layoutMismatch,
       lossReason: this.lossReason,
+      items: this.runtime.statuses(this.now),
     }
   }
 

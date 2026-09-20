@@ -2,8 +2,10 @@ import { AnimatePresence, motion, useAnimationControls } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { sfx } from '../../audio/sfx'
 import { BALANCE } from '../../core/balance'
-import { useGameStore } from '../../state/gameStore'
+import type { WordScored } from '../../core/level'
+import { activeText, useGameStore } from '../../state/gameStore'
 import { multTier } from '../intensity'
+import { ItemBar } from '../components/ItemBar'
 import { LevelHud } from '../components/LevelHud'
 import { ScorePopups, type ScorePopup } from '../components/ScorePopups'
 import { TerminalFrame } from '../components/TerminalFrame'
@@ -32,7 +34,8 @@ export function LevelScreen() {
   const session = useGameStore((state) => state.session)
   const snapshot = useGameStore((state) => state.snapshot)
   const language = useGameStore((state) => state.language)
-  const activeText = useGameStore((state) => state.activeText)
+  const run = useGameStore((state) => state.run)
+  const text = useGameStore(activeText)
 
   const shake = useAnimationControls()
   const [popups, setPopups] = useState<readonly ScorePopup[]>([])
@@ -73,8 +76,9 @@ export function LevelScreen() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.ctrlKey || event.altKey || event.metaKey) return
 
+      // Прервать уровень = прервать забег. Роглайт не предлагает переиграть.
       if (event.key === 'Escape') {
-        useGameStore.getState().openSelect()
+        useGameStore.getState().openMenu()
         return
       }
 
@@ -86,24 +90,31 @@ export function LevelScreen() {
 
       const outcome = useGameStore.getState().pressKey(event.key, performance.now())
 
+      const spawnPopup = (scored: WordScored) => {
+        const id = popupId.current++
+        const { x, y } = cursorPosition(textAreaRef.current)
+        // Звук тот же, что и анимация: на предельном множителе вместо
+        // одиночной ноты звучит аккорд под расходящуюся вспышку.
+        if (multTier(scored.mult).epic) sfx.wordEpic(scored.mult)
+        else sfx.word(scored.mult)
+        setPopups((current) => [
+          ...current,
+          { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, x, y },
+        ])
+        window.setTimeout(() => {
+          setPopups((current) => current.filter((popup) => popup.id !== id))
+        }, 900)
+      }
+
       if (outcome.kind === 'correct') {
         sfx.key()
-        if (outcome.wordScored) {
-          const scored = outcome.wordScored
-          const id = popupId.current++
-          const { x, y } = cursorPosition(textAreaRef.current)
-          // Звук тот же, что и анимация: на предельном множителе вместо
-          // одиночной ноты звучит аккорд под расходящуюся вспышку.
-          if (multTier(scored.mult).epic) sfx.wordEpic(scored.mult)
-          else sfx.word(scored.mult)
-          setPopups((current) => [
-            ...current,
-            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, x, y },
-          ])
-          window.setTimeout(() => {
-            setPopups((current) => current.filter((popup) => popup.id !== id))
-          }, 900)
-        }
+        if (outcome.wordScored) spawnPopup(outcome.wordScored)
+      } else if (outcome.kind === 'forgiven') {
+        // Предмет превратил промах в верную букву. Ни вспышки, ни тряски:
+        // игрок не ошибся, он был прикрыт. Подсветку даёт сам предмет
+        // в панели, звук объясняет, что сработало именно снаряжение.
+        sfx.item()
+        if (outcome.wordScored) spawnPopup(outcome.wordScored)
       } else if (outcome.kind === 'error') {
         sfx.error()
         setFlash(true)
@@ -154,15 +165,19 @@ export function LevelScreen() {
     if (!session) useGameStore.getState().openMenu()
   }, [session])
 
-  if (!session || !snapshot || !activeText) return null
+  if (!session || !snapshot || !text || !run) return null
 
-  const variant = activeText.variants[language]
+  const variant = text.variants[language]
   const countdownNumber = Math.ceil(snapshot.countdownLeftMs / 1000)
 
   return (
-    <TerminalFrame title={variant.title} right={labels.abort}>
+    <TerminalFrame
+      title={`${run.levelIndex + 1}/${run.totalLevels} ${variant.title}`}
+      right={labels.abort}
+    >
       <motion.div animate={shake} className="flex min-h-0 flex-1 flex-col">
         <LevelHud snapshot={snapshot} language={language} />
+        <ItemBar items={run.items} statuses={snapshot.items} language={language} />
 
         <div
           ref={textAreaRef}

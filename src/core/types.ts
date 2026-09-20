@@ -25,6 +25,20 @@ export interface LevelText {
   readonly variants: Readonly<Record<Language, TextVariant>>
 }
 
+/**
+ * Живое состояние предмета на уровне. Интерфейс читает только это:
+ * когда предмет сработал и сколько осталось отката.
+ */
+export interface ItemStatus {
+  readonly id: string
+  /** Сколько миллисекунд отката осталось. 0 — предмет готов. */
+  readonly cooldownLeftMs: number
+  /** Длина последнего отката. Нужна, чтобы нарисовать полосу. */
+  readonly cooldownTotalMs: number
+  /** Сколько прошло с последнего срабатывания. Null — ещё ни разу. */
+  readonly sinceFiredMs: number | null
+}
+
 export type LevelPhase = 'idle' | 'countdown' | 'running' | 'won' | 'lost'
 
 export type LossReason = 'time' | 'textExhausted'
@@ -55,6 +69,8 @@ export interface LevelSnapshot {
   /** Игрок печатает не в той раскладке — показать подсказку. */
   readonly layoutMismatch: boolean
   readonly lossReason: LossReason | null
+  /** Предметы игрока в порядке инвентаря: подсветка и откаты. */
+  readonly items: readonly ItemStatus[]
 }
 
 /** Итог уровня для экрана результатов. */

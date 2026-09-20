@@ -157,6 +157,35 @@ class Sfx {
     this.click(0.1, 5_000)
   }
 
+  /**
+   * Предмет спас игрока. Звук намеренно не похож ни на верную букву, ни на
+   * ошибку: игрок должен понять, что случилось нечто третье, не глядя
+   * на панель предметов.
+   */
+  item(): void {
+    this.tone(880, 0.07, { wave: 'triangle', gain: 0.1 })
+    this.tone(1_320, 0.12, { wave: 'triangle', gain: 0.09, delaySec: 0.05 })
+    this.click(0.08, 4_000)
+  }
+
+  /** Откат предмета истёк: он снова готов. Тихая подсказка, не фанфара. */
+  itemReady(): void {
+    this.tone(1_046.5, 0.08, { wave: 'sine', gain: 0.06 })
+  }
+
+  /** Покупка в магазине. */
+  purchase(): void {
+    this.click(0.14, 2_400)
+    this.tone(660, 0.09, { wave: 'square', gain: 0.09 })
+    this.tone(990, 0.14, { wave: 'square', gain: 0.08, delaySec: 0.07 })
+  }
+
+  /** Витрина перетряхнута. */
+  reroll(): void {
+    this.click(0.12, 1_200)
+    this.tone(440, 0.12, { wave: 'sawtooth', gain: 0.07, slideTo: 880 })
+  }
+
   /** Тик отсчёта 3-2-1. */
   countdown(): void {
     this.tone(620, 0.1, { gain: 0.1 })

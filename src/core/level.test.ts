@@ -343,8 +343,6 @@ describe('система эффектов', () => {
   it('позволяет модификатору изменить цену символа', () => {
     const doubleChips: Modifier = {
       id: 'test-double',
-      name: 'Удвоитель',
-      description: 'Каждый символ стоит вдвое дороже.',
       hooks: { onCharCorrect: (ctx) => { ctx.chips *= 2 } },
     }
     const session = makeSession({ modifiers: [doubleChips] })
@@ -355,8 +353,6 @@ describe('система эффектов', () => {
   it('позволяет модификатору изменить множитель слова', () => {
     const bonusMult: Modifier = {
       id: 'test-mult',
-      name: 'Ускоритель',
-      description: 'Дополнительный множитель за слово.',
       hooks: { onWordComplete: (ctx) => { ctx.mult += 1 } },
     }
     const session = makeSession({ modifiers: [bonusMult] })
@@ -369,22 +365,88 @@ describe('система эффектов', () => {
   it('позволяет модификатору смягчить штраф времени', () => {
     const absorber: Modifier = {
       id: 'test-absorber',
-      name: 'Амортизатор',
-      description: 'Половинный штраф.',
       hooks: { onTimePenalty: (ctx) => { ctx.penaltyMs = ctx.penaltyMs / 2 } },
     }
     const session = makeSession({ modifiers: [absorber] })
     expect(session.pressKey('z', START + 1)).toEqual({ kind: 'error', penaltyMs: 500 })
   })
 
+  it('не предлагает предметам спасать промах внутри окна безопасности', () => {
+    let offers = 0
+    const watcher: Modifier = {
+      id: 'watcher',
+      hooks: { onCharError: () => { offers++ } },
+    }
+    const session = makeSession({ modifiers: [watcher] })
+
+    session.pressKey('z', START + 1) // настоящая ошибка: предмету предложено спасти
+    expect(offers).toBe(1)
+
+    // Инерционный промах внутри окна гасится раньше, чем дойдёт до предмета,
+    // иначе одноразовые спасения сгорали бы на физиологии, а не на ошибках.
+    session.pressKey('q', START + 100)
+    expect(offers).toBe(1)
+  })
+
+  it('прощённый промах не считается ошибкой и не открывает окно безопасности', () => {
+    const saviour: Modifier = {
+      id: 'saviour',
+      hooks: { onCharError: (ctx) => { ctx.forgiven = true } },
+    }
+    const session = makeSession({ modifiers: [saviour] })
+
+    expect(session.pressKey('z', START + 1)).toEqual({
+      kind: 'forgiven',
+      char: 'a',
+      wordScored: null,
+    })
+    expect(session.snapshot.errors).toBe(0)
+    expect(session.snapshot.safeWindow).toBe(false)
+    expect(session.snapshot.wrongKey).toBeNull()
+  })
+
+  it('даёт предмету переопределить, какая клавиша считается верной', () => {
+    const anyKey: Modifier = {
+      id: 'any-key',
+      hooks: { onKeyCheck: (ctx) => { ctx.accepted = true } },
+    }
+    const session = makeSession({ modifiers: [anyKey] })
+    expect(session.pressKey('z', START + 1)).toEqual({
+      kind: 'correct',
+      char: 'a',
+      wordScored: null,
+    })
+  })
+
+  it('даёт предмету память и откат между вызовами', () => {
+    const counter: Modifier = {
+      id: 'counter',
+      memory: { hits: 0 },
+      hooks: {
+        onCharCorrect: (ctx) => {
+          ctx.item.memory.hits = (ctx.item.memory.hits ?? 0) + 1
+          if (ctx.item.ready) ctx.item.fire(1_000)
+        },
+      },
+    }
+    const session = makeSession({ modifiers: [counter] })
+
+    session.pressKey('a', START + 1)
+    expect(session.snapshot.items[0]!.cooldownLeftMs).toBe(1_000)
+
+    // Пока идёт откат, предмет виден как занятый и fire() не вызывает.
+    session.pressKey('b', START + 2)
+    expect(session.snapshot.items[0]!.cooldownLeftMs).toBe(999)
+  })
+
   it('применяет модификаторы по порядку', () => {
     const order: string[] = []
     const first: Modifier = {
-      id: 'first', name: 'Первый', description: '',
+      id: 'first',
       hooks: { onCharCorrect: () => { order.push('first') } },
     }
     const second: Modifier = {
-      id: 'second', name: 'Второй', description: '',
+      id: 'second',
       hooks: { onCharCorrect: () => { order.push('second') } },
     }
     const session = makeSession({ modifiers: [first, second] })
