@@ -2,6 +2,8 @@ import { motion } from 'motion/react'
 import { useEffect } from 'react'
 import { sfx } from '../../audio/sfx'
 import { TEXTS } from '../../content/texts'
+import { BALANCE } from '../../core/balance'
+import { requiredWpm, wallStep } from '../../core/difficulty'
 import { useGameStore } from '../../state/gameStore'
 import type { Language } from '../../core/types'
 import { TerminalButton } from '../components/TerminalButton'
@@ -29,8 +31,34 @@ const INTRO: Record<Language, readonly string[]> = {
 }
 
 const LABELS = {
-  ru: { start: 'Начать забег', language: 'Язык', sound: 'Звук', on: 'вкл', off: 'выкл', nodes: 'узлов', hint: 'Enter — начать' },
-  en: { start: 'Start a run', language: 'Language', sound: 'Sound', on: 'on', off: 'off', nodes: 'nodes', hint: 'Enter to start' },
+  ru: {
+    start: 'Начать забег',
+    language: 'Язык',
+    sound: 'Звук',
+    on: 'вкл',
+    off: 'выкл',
+    nodes: 'узлов',
+    speed: 'Твоя скорость',
+    hint: 'Enter — начать',
+    curveHead: 'Забег потребует от',
+    curveMid: 'до',
+    curveTail: 'слов в минуту. С узла',
+    curveEnd: 'без предметов уже не обойтись.',
+  },
+  en: {
+    start: 'Start a run',
+    language: 'Language',
+    sound: 'Sound',
+    on: 'on',
+    off: 'off',
+    nodes: 'nodes',
+    speed: 'Your speed',
+    hint: 'Enter to start',
+    curveHead: 'This run will demand from',
+    curveMid: 'to',
+    curveTail: 'words per minute. From node',
+    curveEnd: 'onward you will need items.',
+  },
 } as const
 
 export function MainMenu() {
@@ -39,8 +67,13 @@ export function MainMenu() {
   const setLanguage = useGameStore((state) => state.setLanguage)
   const toggleSound = useGameStore((state) => state.toggleSound)
   const beginRun = useGameStore((state) => state.beginRun)
+  const baseWpm = useGameStore((state) => state.baseWpm)
+  const setBaseWpm = useGameStore((state) => state.setBaseWpm)
 
   const labels = LABELS[language]
+  const fromWpm = requiredWpm(baseWpm, 0, BALANCE.runLength)
+  const toWpm = requiredWpm(baseWpm, BALANCE.runLength - 1, BALANCE.runLength)
+  const wall = wallStep(BALANCE.runLength) + 1
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -106,6 +139,14 @@ export function MainMenu() {
             </Choice>
           </Setting>
 
+          <Setting label={labels.speed}>
+            {BALANCE.presets.map((wpm) => (
+              <Choice key={wpm} active={baseWpm === wpm} onClick={() => setBaseWpm(wpm)}>
+                {wpm}
+              </Choice>
+            ))}
+          </Setting>
+
           <Setting label={labels.sound}>
             <Choice
               active={soundEnabled}
@@ -120,6 +161,18 @@ export function MainMenu() {
 
           <span className="text-xs tracking-widest text-term-dim uppercase">{labels.hint}</span>
         </motion.div>
+
+        <motion.p
+          className="text-xs text-term-dim"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.05 }}
+        >
+          {labels.curveHead} <span className="text-term-amber">{fromWpm}</span>{' '}
+          {labels.curveMid} <span className="text-term-amber">{toWpm}</span>{' '}
+          {labels.curveTail} <span className="text-term-amber">{wall}</span>{' '}
+          {labels.curveEnd}
+        </motion.p>
       </div>
     </TerminalFrame>
   )

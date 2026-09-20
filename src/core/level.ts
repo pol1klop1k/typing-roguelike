@@ -29,6 +29,8 @@ export interface LevelConfig {
   readonly targetScore: number
   readonly durationMs: number
   readonly reward: number
+  /** Скорость, которой требует узел. Ядро её только показывает. */
+  readonly requiredWpm?: number
   /** Предметы, эффекты босса и модификаторы уровня. В прототипе пусто. */
   readonly modifiers?: readonly Modifier[]
 }
@@ -65,6 +67,7 @@ export class LevelSession {
   readonly targetScore: number
   readonly durationMs: number
   readonly reward: number
+  readonly requiredWpm: number
 
   private readonly runtime: ModifierRuntime
 
@@ -97,6 +100,7 @@ export class LevelSession {
     this.targetScore = config.targetScore
     this.durationMs = config.durationMs
     this.reward = config.reward
+    this.requiredWpm = config.requiredWpm ?? 0
     this.runtime = new ModifierRuntime(config.modifiers ?? [])
   }
 
@@ -338,6 +342,7 @@ export class LevelSession {
       layoutMismatch: this.layoutMismatch,
       lossReason: this.lossReason,
       items: this.runtime.statuses(this.now),
+      requiredWpm: this.requiredWpm,
     }
   }
 
@@ -359,6 +364,7 @@ export class LevelSession {
       wpm: computeWpm(this.correctChars, elapsedMs),
       accuracy: computeAccuracy(this.correctChars, this.errors),
       reward: won ? this.reward : 0,
+      requiredWpm: this.requiredWpm,
     }
   }
 }

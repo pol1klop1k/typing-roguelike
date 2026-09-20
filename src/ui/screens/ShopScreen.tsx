@@ -2,7 +2,7 @@ import { motion } from 'motion/react'
 import { useEffect } from 'react'
 import { sfx } from '../../audio/sfx'
 import { findItem } from '../../content/items'
-import { TEXTS } from '../../content/texts'
+import { findText } from '../../content/texts'
 import { BALANCE } from '../../core/balance'
 import { canAfford, hasFreeSlot } from '../../core/run'
 import { useGameStore } from '../../state/gameStore'
@@ -69,7 +69,8 @@ export function ShopScreen() {
 
   if (!run) return null
 
-  const nextText = TEXTS[run.levelIndex + 1]
+  const nextId = run.levels[run.levelIndex + 1]
+  const nextText = nextId ? findText(nextId) : undefined
   const canReroll = canAfford(run, BALANCE.rerollCost)
 
   return (

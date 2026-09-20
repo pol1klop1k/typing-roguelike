@@ -7,10 +7,12 @@
 import { create } from 'zustand'
 import { sfx } from '../audio/sfx'
 import { findItem, ITEMS, modifiersFor } from '../content/items'
-import { TEXTS } from '../content/texts'
+import { findText, TEXTS } from '../content/texts'
+import { planLevel } from '../core/difficulty'
 import { LevelSession, type KeyOutcome } from '../core/level'
 import {
   buyItem,
+  currentLevelId,
   dropItem,
   leaveShop,
   loseLevel,
@@ -19,7 +21,15 @@ import {
   winLevel,
   type RunState,
 } from '../core/run'
-import type { Language, LevelResult, LevelSnapshot, LevelText, TextVariant } from '../core/types'
+import { BALANCE } from '../core/balance'
+import type {
+  BaseWpm,
+  Language,
+  LevelResult,
+  LevelSnapshot,
+  LevelText,
+  TextVariant,
+} from '../core/types'
 
 export type Screen = 'menu' | 'level' | 'results' | 'shop'
 
@@ -27,15 +37,18 @@ interface GameState {
   screen: Screen
   language: Language
   soundEnabled: boolean
+  /** Заявленная скорость печати. От неё зависит вся кривая забега. */
+  baseWpm: BaseWpm
   run: RunState | null
   session: LevelSession | null
   snapshot: LevelSnapshot | null
   result: LevelResult | null
 
   setLanguage: (language: Language) => void
+  setBaseWpm: (baseWpm: BaseWpm) => void
   toggleSound: () => void
   openMenu: () => void
-  /** Новый забег с нуля: кредиты и предметы обнуляются. */
+  /** Новый забег с нуля: новая выборка узлов, пустой инвентарь. */
   beginRun: () => void
   startSession: (now: number) => void
   tick: (now: number) => void
@@ -47,14 +60,15 @@ interface GameState {
   buy: (itemId: string) => void
   drop: (index: number) => void
   reroll: () => void
-  /** Из магазина на следующий уровень. */
+  /** Из магазина на следующий узел. */
   nextLevel: () => void
 }
 
-/** Текст текущего уровня забега. */
+/** Текст текущего узла забега. */
 export function activeText(state: GameState): LevelText | null {
   if (!state.run) return null
-  return TEXTS[state.run.levelIndex] ?? null
+  const id = currentLevelId(state.run)
+  return id ? (findText(id) ?? null) : null
 }
 
 /** Вариант текущего текста на выбранном языке. */
@@ -64,15 +78,22 @@ export function activeVariant(state: GameState): TextVariant | null {
 }
 
 function createSession(run: RunState, language: Language): LevelSession | null {
-  const text = TEXTS[run.levelIndex]
+  const id = currentLevelId(run)
+  const text = id ? findText(id) : undefined
   if (!text) return null
+
   const variant = text.variants[language]
+  // Таймер, цель и награда считаются из места узла в забеге, а не берутся
+  // из текста: один и тот же фрагмент на втором и на девятом узле требует
+  // разного, и это ровно то, что делает забег забегом.
+  const plan = planLevel(variant.body, run.baseWpm, run.levelIndex, run.totalLevels)
 
   return new LevelSession({
     text: variant.body,
-    targetScore: variant.targetScore,
-    durationMs: variant.durationMs,
-    reward: text.reward,
+    targetScore: plan.targetScore,
+    durationMs: plan.durationMs,
+    reward: plan.reward,
+    requiredWpm: plan.requiredWpm,
     modifiers: modifiersFor(run.items),
   })
 }
@@ -81,12 +102,15 @@ export const useGameStore = create<GameState>((set, get) => ({
   screen: 'menu',
   language: 'ru',
   soundEnabled: true,
+  baseWpm: BALANCE.presets[1]!,
   run: null,
   session: null,
   snapshot: null,
   result: null,
 
   setLanguage: (language) => set({ language }),
+
+  setBaseWpm: (baseWpm) => set({ baseWpm }),
 
   toggleSound: () => {
     const soundEnabled = !get().soundEnabled
@@ -97,7 +121,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   openMenu: () => set({ screen: 'menu', run: null, session: null, snapshot: null, result: null }),
 
   beginRun: () => {
-    const run = startRun(Date.now(), TEXTS.length)
+    const run = startRun(Date.now(), get().baseWpm, TEXTS)
     const session = createSession(run, get().language)
     if (!session) return
     set({ screen: 'level', run, session, snapshot: session.snapshot, result: null })

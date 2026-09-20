@@ -4,24 +4,29 @@
 
 export type Language = 'ru' | 'en'
 
-export type Difficulty = 'easy' | 'normal' | 'hard'
+/**
+ * Заявленная игроком скорость печати, слов в минуту. От неё пляшет вся
+ * кривая забега: требуемая скорость задана долей от этого числа, а не
+ * абсолютной величиной. Игрок называет её в меню, потому что «требуемая
+ * скорость» имеет смысл только рядом с собственной.
+ */
+export type BaseWpm = number
 
-/** Языковой вариант текста. Длина и цель задаются отдельно для каждого языка,
- *  потому что один и тот же фрагмент лора на русском и английском печатается
- *  за разное время. */
+/** Языковой вариант текста. Только содержание: заголовок и тело. */
 export interface TextVariant {
   readonly title: string
   readonly body: string
-  readonly durationMs: number
-  readonly targetScore: number
 }
 
-/** Уровень в виде данных. Это всё, что ядру нужно знать о тексте. */
+/**
+ * Фрагмент лора. Чисел здесь намеренно нет: таймер, цель и награда
+ * вычисляются забегом из места узла в нём (см. core/difficulty.ts).
+ * Благодаря этому новый текст добавляется без всякой настройки.
+ */
 export interface LevelText {
   readonly id: string
-  readonly difficulty: Difficulty
-  /** Награда в кредитах за прохождение. Пока заглушка под будущий магазин. */
-  readonly reward: number
+  /** Номер журнала. Задаёт порядок чтения лора, а не сложность. */
+  readonly order: number
   readonly variants: Readonly<Record<Language, TextVariant>>
 }
 
@@ -71,6 +76,8 @@ export interface LevelSnapshot {
   readonly lossReason: LossReason | null
   /** Предметы игрока в порядке инвентаря: подсветка и откаты. */
   readonly items: readonly ItemStatus[]
+  /** Скорость, которой требует этот узел. */
+  readonly requiredWpm: number
 }
 
 /** Итог уровня для экрана результатов. */
@@ -90,4 +97,6 @@ export interface LevelResult {
   /** Точность в процентах, 0..100. */
   readonly accuracy: number
   readonly reward: number
+  /** Скорость, которой требовал этот узел. */
+  readonly requiredWpm: number
 }

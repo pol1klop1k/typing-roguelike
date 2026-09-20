@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { BALANCE } from '../core/balance'
+import { planLevel } from '../core/difficulty'
 import { LevelSession } from '../core/level'
 import { findForbiddenChars } from '../core/typing'
-import type { Language, TextVariant } from '../core/types'
+import type { Language, BaseWpm, TextVariant } from '../core/types'
 import { findText, TEXTS } from './texts'
 
 const LANGUAGES: readonly Language[] = ['ru', 'en']
+const PRESETS: readonly BaseWpm[] = BALANCE.presets
 
 /** Прогоняет текст через настоящее ядро без ограничения по времени. */
 function playPerfectly(variant: TextVariant, targetScore: number) {
@@ -27,28 +29,22 @@ function playPerfectly(variant: TextVariant, targetScore: number) {
 }
 
 describe('каталог текстов', () => {
-  it('выстроен по возрастанию сложности: это порядок уровней забега', () => {
-    const rank = { easy: 0, normal: 1, hard: 2 }
-    const ranks = TEXTS.map((t) => rank[t.difficulty])
-    expect(ranks).toEqual([...ranks].sort((a, b) => a - b))
-  })
-
-  it('содержит все три сложности', () => {
-    expect(new Set(TEXTS.map((t) => t.difficulty))).toEqual(new Set(['easy', 'normal', 'hard']))
+  it('содержит запас, ощутимо больший длины забега', () => {
+    // Иначе каждый забег будет показывать почти один и тот же набор.
+    expect(TEXTS.length).toBeGreaterThan(BALANCE.runLength * 1.5)
   })
 
   it('не содержит повторяющихся идентификаторов', () => {
     expect(new Set(TEXTS.map((t) => t.id)).size).toBe(TEXTS.length)
   })
 
-  it('находит текст по идентификатору', () => {
-    expect(findText('signal')?.difficulty).toBe('easy')
-    expect(findText('нет такого')).toBeUndefined()
+  it('не содержит повторяющихся номеров журнала', () => {
+    expect(new Set(TEXTS.map((t) => t.order)).size).toBe(TEXTS.length)
   })
 
-  it('повышает награду вместе со сложностью', () => {
-    const rewards = TEXTS.map((t) => t.reward)
-    expect(rewards).toEqual([...rewards].sort((a, b) => a - b))
+  it('находит текст по идентификатору', () => {
+    expect(findText('signal')?.order).toBe(1)
+    expect(findText('нет такого')).toBeUndefined()
   })
 })
 
@@ -71,30 +67,53 @@ describe.each(TEXTS)('текст $id', (text) => {
       expect(variant.body).not.toContain('  ')
     })
 
-    it('достижим: идеальный прогон добирает цель', () => {
-      const snapshot = playPerfectly(variant, variant.targetScore)
-      expect(snapshot.phase).toBe('won')
+    it('не содержит буквы ё: на части раскладок её нет там, где ждут', () => {
+      expect(variant.body.toLowerCase()).not.toContain('ё')
     })
+  })
+})
 
-    it('честен: цель берётся примерно на половине текста, а не мгновенно', () => {
-      const snapshot = playPerfectly(variant, variant.targetScore)
-      const fraction = snapshot.cursor / variant.body.length
-      expect(fraction).toBeGreaterThan(0.45)
-      expect(fraction).toBeLessThan(0.8)
-    })
+/**
+ * Проверяем не сами тексты, а то, что выведенные из них числа остаются
+ * играбельными на любом узле любого пресета. Это защита от текста, который
+ * технически корректен, но даёт уровень на шесть секунд или на три минуты.
+ */
+describe.each(PRESETS)('заявленные %i wpm дают вменяемые узлы', (preset) => {
+  describe.each(TEXTS)('текст $id', (text) => {
+    describe.each(LANGUAGES)('язык %s', (language) => {
+      const variant = text.variants[language]
 
-    it('требует вменяемой скорости печати', () => {
-      const snapshot = playPerfectly(variant, variant.targetScore)
-      const minutes = variant.durationMs / 60_000
-      const requiredCpm = snapshot.cursor / minutes
-      // примерно от 19 до 48 слов в минуту при идеальной точности
-      expect(requiredCpm).toBeGreaterThan(95)
-      expect(requiredCpm).toBeLessThan(240)
-    })
+      it('цель достижима и оставляет хвост текста про запас', () => {
+        for (const step of [0, BALANCE.runLength - 1]) {
+          const plan = planLevel(variant.body, preset, step, BALANCE.runLength)
+          const snapshot = playPerfectly(variant, plan.targetScore)
+          expect(snapshot.phase).toBe('won')
 
-    it('укладывается в разумную длину уровня', () => {
-      expect(variant.durationMs).toBeGreaterThanOrEqual(25_000)
-      expect(variant.durationMs).toBeLessThanOrEqual(70_000)
+          const fraction = snapshot.cursor / variant.body.length
+          expect(fraction).toBeLessThanOrEqual(BALANCE.maxTypedFraction + 0.05)
+        }
+      })
+
+      it('таймер укладывается в разумную длину уровня на всех шагах', () => {
+        for (let step = 0; step < BALANCE.runLength; step++) {
+          const plan = planLevel(variant.body, preset, step, BALANCE.runLength)
+          expect(plan.durationMs).toBeGreaterThanOrEqual(12_000)
+          expect(plan.durationMs).toBeLessThanOrEqual(70_000)
+        }
+      })
+
+      it('поздний узел требует больше работы за меньшее время', () => {
+        const first = planLevel(variant.body, preset, 0, BALANCE.runLength)
+        const last = planLevel(variant.body, preset, BALANCE.runLength - 1, BALANCE.runLength)
+
+        // Главное: требуемая скорость растёт. Это и есть сложность.
+        expect(last.requiredWpm).toBeGreaterThan(first.requiredWpm)
+        // Работы больше, времени меньше. Объём мог упереться в длину текста,
+        // поэтому «не меньше», а не «строго больше».
+        expect(last.targetScore).toBeGreaterThanOrEqual(first.targetScore)
+        expect(last.durationMs).toBeLessThanOrEqual(first.durationMs)
+        expect(last.reward).toBeGreaterThan(first.reward)
+      })
     })
   })
 })

@@ -14,6 +14,7 @@ const LABELS = {
     score: 'Счёт',
     target: 'цель',
     mult: 'Множитель',
+    needed: 'нужно',
     combo: 'Комбо',
     errors: 'Ошибок',
     inWord: 'В слове',
@@ -23,6 +24,7 @@ const LABELS = {
     score: 'Score',
     target: 'target',
     mult: 'Mult',
+    needed: 'needs',
     combo: 'Combo',
     errors: 'Errors',
     inWord: 'In word',
@@ -47,7 +49,17 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
 
   return (
     <div className="grid shrink-0 grid-cols-1 gap-4 border-b border-term-line px-4 py-3 sm:grid-cols-2 sm:gap-8">
-      <Gauge label={labels.time}>
+      {/* Требуемая скорость стоит рядом с таймером не случайно: это и есть
+          объяснение, почему таймер именно такой. */}
+      <Gauge
+        label={labels.time}
+        aside={
+          <span className="text-term-muted">
+            {labels.needed}{' '}
+            <span className="text-term-bright">{snapshot.requiredWpm} wpm</span>
+          </span>
+        }
+      >
         <motion.span
           className={`glow text-3xl tabular-nums ${timeColor}`}
           animate={critical ? { opacity: [1, 0.45, 1] } : { opacity: 1 }}

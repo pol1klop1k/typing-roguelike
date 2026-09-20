@@ -11,6 +11,7 @@
  */
 import { BALANCE } from './balance'
 import { createRng } from './rng'
+import type { BaseWpm } from './types'
 
 export type RunPhase =
   /** Идёт уровень (или показываются его итоги). */
@@ -24,7 +25,14 @@ export type RunPhase =
 
 export interface RunState {
   readonly seed: number
-  /** Индекс текущего уровня в списке текстов. */
+  /** Заявленная скорость игрока: от неё считается требуемая на каждом узле. */
+  readonly baseWpm: BaseWpm
+  /**
+   * Узлы этого забега: случайный набор фрагментов лора, отсортированный
+   * по номеру журнала. Каждый забег читает свою выборку, но всегда вперёд.
+   */
+  readonly levels: readonly string[]
+  /** Индекс текущего узла в levels. */
   readonly levelIndex: number
   readonly totalLevels: number
   readonly credits: number
@@ -37,6 +45,12 @@ export interface RunState {
   readonly phase: RunPhase
 }
 
+/** Фрагмент лора в том виде, в каком забег его знает: id и номер журнала. */
+export interface TextEntry {
+  readonly id: string
+  readonly order: number
+}
+
 /** Предмет в том виде, в каком забег его знает: id, цена и уникальность. */
 export interface ShopEntry {
   readonly id: string
@@ -45,17 +59,42 @@ export interface ShopEntry {
   readonly unique?: boolean
 }
 
-export function startRun(seed: number, totalLevels: number): RunState {
+/**
+ * Набор узлов забега.
+ *
+ * Сначала случайная выборка из запаса, потом сортировка по номеру журнала.
+ * Порядок именно такой: выборка делает каждый забег непохожим на прошлый,
+ * сортировка не даёт истории скакать назад. Если запас меньше нужного,
+ * берём сколько есть - забег просто выйдет короче.
+ */
+export function pickLevels(seed: number, pool: readonly TextEntry[], count: number): string[] {
+  const rng = createRng(seed)
+  return rng
+    .shuffle(pool)
+    .slice(0, count)
+    .sort((a, b) => a.order - b.order)
+    .map((entry) => entry.id)
+}
+
+export function startRun(seed: number, baseWpm: BaseWpm, pool: readonly TextEntry[]): RunState {
+  const levels = pickLevels(seed, pool, BALANCE.runLength)
   return {
     seed,
+    baseWpm,
+    levels,
     levelIndex: 0,
-    totalLevels,
+    totalLevels: levels.length,
     credits: 0,
     items: [],
     offers: [],
     rerolls: 0,
     phase: 'level',
   }
+}
+
+/** Идентификатор текста на текущем узле. */
+export function currentLevelId(run: RunState): string | null {
+  return run.levels[run.levelIndex] ?? null
 }
 
 /**

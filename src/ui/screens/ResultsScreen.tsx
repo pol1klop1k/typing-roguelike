@@ -13,6 +13,7 @@ const LABELS = {
     score: 'Счёт',
     target: 'Цель',
     speed: 'Скорость',
+    demanded: 'Требовалось',
     accuracy: 'Точность',
     errors: 'Ошибок',
     combo: 'Лучшее комбо',
@@ -40,6 +41,7 @@ const LABELS = {
     score: 'Score',
     target: 'Target',
     speed: 'Speed',
+    demanded: 'Demanded',
     accuracy: 'Accuracy',
     errors: 'Errors',
     combo: 'Best combo',
@@ -129,14 +131,20 @@ export function ResultsScreen() {
         </div>
 
         <motion.dl
-          className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-4"
+          className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-3"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.15 }}
         >
           <Stat label={labels.score} value={result.score.toLocaleString('ru-RU')} accent />
           <Stat label={labels.target} value={result.targetScore.toLocaleString('ru-RU')} />
-          <Stat label={labels.speed} value={`${result.cpm} ${labels.cpm}`} sub={`${result.wpm} wpm`} />
+          <Stat
+            label={labels.speed}
+            value={`${result.wpm} wpm`}
+            sub={`${result.cpm} ${labels.cpm}`}
+            danger={result.wpm < result.requiredWpm}
+          />
+          <Stat label={labels.demanded} value={`${result.requiredWpm} wpm`} />
           <Stat label={labels.accuracy} value={`${result.accuracy}%`} />
           <Stat label={labels.errors} value={String(result.errors)} danger={result.errors > 0} />
           <Stat label={labels.combo} value={String(result.maxCombo)} />
