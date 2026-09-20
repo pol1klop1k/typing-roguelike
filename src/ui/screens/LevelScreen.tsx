@@ -92,9 +92,10 @@ export function LevelScreen() {
           sfx.word(scored.mult)
           const id = popupId.current++
           const { x, y } = cursorPosition(textAreaRef.current)
+          const combo = useGameStore.getState().snapshot?.combo ?? 0
           setPopups((current) => [
             ...current,
-            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, x, y },
+            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, combo, x, y },
           ])
           window.setTimeout(() => {
             setPopups((current) => current.filter((popup) => popup.id !== id))
@@ -158,13 +159,13 @@ export function LevelScreen() {
   return (
     <TerminalFrame title={variant.title} right={labels.abort}>
       <motion.div animate={shake} className="flex min-h-0 flex-1 flex-col">
-        <LevelHud snapshot={snapshot} />
+        <LevelHud snapshot={snapshot} language={language} />
 
         <div
           ref={textAreaRef}
-          className="relative min-h-0 flex-1 overflow-y-auto px-6 py-8 sm:px-10"
+          className="relative min-h-0 flex-1 overflow-y-auto px-6 pt-24 pb-8 sm:px-10"
         >
-          <ScorePopups popups={popups} />
+          <ScorePopups popups={popups} language={language} />
 
           <TypingText
             words={session.words}

@@ -1,12 +1,37 @@
 import { motion } from 'motion/react'
 import { BALANCE } from '../../core/balance'
-import type { LevelSnapshot } from '../../core/types'
+import type { Language, LevelSnapshot } from '../../core/types'
+import { comboTier, nextTierAt } from '../comboStyle'
 
 interface LevelHudProps {
   snapshot: LevelSnapshot
+  language: Language
 }
 
-export function LevelHud({ snapshot }: LevelHudProps) {
+const LABELS = {
+  ru: {
+    time: 'Время',
+    score: 'Счёт',
+    target: 'цель',
+    mult: 'Множитель',
+    combo: 'Комбо',
+    errors: 'Ошибок',
+    inWord: 'В слове',
+  },
+  en: {
+    time: 'Time',
+    score: 'Score',
+    target: 'target',
+    mult: 'Mult',
+    combo: 'Combo',
+    errors: 'Errors',
+    inWord: 'In word',
+  },
+} as const
+
+export function LevelHud({ snapshot, language }: LevelHudProps) {
+  const labels = LABELS[language]
+
   const seconds = snapshot.timeLeftMs / 1000
   const urgent = snapshot.timeLeftMs <= BALANCE.lowTimeWarningMs
   const critical = snapshot.timeLeftMs <= 5_000
@@ -15,9 +40,14 @@ export function LevelHud({ snapshot }: LevelHudProps) {
   const timeRatio = snapshot.totalTimeMs === 0 ? 0 : snapshot.timeLeftMs / snapshot.totalTimeMs
   const scoreRatio = Math.min(1, snapshot.score / snapshot.targetScore)
 
+  const tier = comboTier(snapshot.combo)
+  const nextTier = nextTierAt(snapshot.combo)
+  const tierProgress =
+    nextTier === null ? 1 : (snapshot.combo - tier.min) / (nextTier - tier.min)
+
   return (
     <div className="grid shrink-0 grid-cols-1 gap-4 border-b border-term-line px-4 py-3 sm:grid-cols-2 sm:gap-8">
-      <Gauge label="Время">
+      <Gauge label={labels.time}>
         <motion.span
           className={`glow text-3xl tabular-nums ${timeColor}`}
           animate={critical ? { opacity: [1, 0.45, 1] } : { opacity: 1 }}
@@ -29,10 +59,11 @@ export function LevelHud({ snapshot }: LevelHudProps) {
       </Gauge>
 
       <Gauge
-        label="Счёт"
+        label={labels.score}
         aside={
           <span className="text-term-muted">
-            цель <span className="text-term-bright">{snapshot.targetScore.toLocaleString('ru-RU')}</span>
+            {labels.target}{' '}
+            <span className="text-term-bright">{snapshot.targetScore.toLocaleString('ru-RU')}</span>
           </span>
         }
       >
@@ -48,29 +79,62 @@ export function LevelHud({ snapshot }: LevelHudProps) {
         <Bar ratio={scoreRatio} className="bg-term-bright" />
       </Gauge>
 
-      <div className="col-span-full flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs tracking-widest uppercase">
-        <Readout label="Множитель">
+      <div className="col-span-full flex flex-wrap items-end gap-x-8 gap-y-3">
+        {/* Комбо - главный индикатор серии, поэтому крупнее остальных счётчиков. */}
+        <div className="flex min-w-32 flex-col gap-1">
+          <div className="flex items-baseline gap-2 text-[0.7rem] tracking-[0.25em] uppercase">
+            <span className="text-term-muted">{labels.combo}</span>
+            {tier.level > 0 ? (
+              <span className={`${tier.color} glow-soft`}>{tier.name[language]}</span>
+            ) : null}
+          </div>
           <motion.span
-            key={snapshot.mult}
-            className="glow text-lg text-term-amber"
-            initial={{ scale: 1.3 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 16 }}
+            // Рывок только при смене ступени: дёргать число на каждом
+            // символе - значит превратить панель в мигающий шум.
+            key={tier.level}
+            className={`glow leading-none tabular-nums ${tier.hudSize} ${tier.color}`}
+            initial={{ scale: 1.5 }}
+            animate={
+              tier.pulse ? { scale: 1, opacity: [1, 0.6, 1] } : { scale: 1, opacity: 1 }
+            }
+            transition={
+              tier.pulse
+                ? { scale: { type: 'spring', stiffness: 400, damping: 14 }, opacity: { duration: 0.9, repeat: Infinity } }
+                : { type: 'spring', stiffness: 400, damping: 14 }
+            }
           >
-            x{snapshot.mult.toFixed(1)}
+            {snapshot.combo}
           </motion.span>
-        </Readout>
-        <Readout label="Комбо">
-          <span className="text-lg text-term">{snapshot.combo}</span>
-        </Readout>
-        <Readout label="Ошибок">
-          <span className={`text-lg ${snapshot.errors > 0 ? 'text-term-red' : 'text-term-dim'}`}>
-            {snapshot.errors}
-          </span>
-        </Readout>
-        <Readout label="В слове">
-          <span className="text-lg text-term-muted">{snapshot.wordChips}</span>
-        </Readout>
+          <div className="h-1 w-28 border border-term-line bg-term-bg">
+            <motion.div
+              className={`h-full ${tier.level >= 2 ? 'bg-term-amber' : 'bg-term'}`}
+              animate={{ width: `${Math.max(0, Math.min(1, tierProgress)) * 100}%` }}
+              transition={{ duration: 0.15, ease: 'easeOut' }}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs tracking-widest uppercase">
+          <Readout label={labels.mult}>
+            <motion.span
+              key={snapshot.mult}
+              className="glow text-lg text-term-amber"
+              initial={{ scale: 1.3 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 500, damping: 16 }}
+            >
+              x{snapshot.mult.toFixed(1)}
+            </motion.span>
+          </Readout>
+          <Readout label={labels.errors}>
+            <span className={`text-lg ${snapshot.errors > 0 ? 'text-term-red' : 'text-term-dim'}`}>
+              {snapshot.errors}
+            </span>
+          </Readout>
+          <Readout label={labels.inWord}>
+            <span className="text-lg text-term-muted">{snapshot.wordChips}</span>
+          </Readout>
+        </div>
       </div>
     </div>
   )
