@@ -122,10 +122,39 @@ class Sfx {
     this.click(0.2, 700)
   }
 
+  /** Высота ноты слова: чем выше множитель, тем выше тон. */
+  private wordPitch(mult: number): number {
+    const step = Math.min(14, Math.round((mult - 1) / 0.2))
+    return 520 * 2 ** (step / 12)
+  }
+
   /** Слово превратилось в очки. Чем выше множитель, тем выше нота. */
   word(mult: number): void {
-    const step = Math.min(12, Math.round((mult - 1) / 0.2))
-    this.tone(520 * 2 ** (step / 12), 0.09, { wave: 'triangle', gain: 0.1 })
+    this.tone(this.wordPitch(mult), 0.09, { wave: 'triangle', gain: 0.1 })
+  }
+
+  /**
+   * Слово на предельном комбо. Вместо одиночной ноты - быстрое арпеджио
+   * мажорного трезвучия с октавой и искрой сверху.
+   *
+   * Звук намеренно короткий: на таком комбо слова идут раз в полторы
+   * секунды, и длинная фанфара превратилась бы в кашу.
+   */
+  wordEpic(mult: number): void {
+    const root = this.wordPitch(mult)
+
+    // Арпеджио: основной тон, терция, квинта, октава.
+    ;[0, 4, 7, 12].forEach((semitones, index) => {
+      this.tone(root * 2 ** (semitones / 12), 0.34 - index * 0.03, {
+        wave: 'triangle',
+        gain: 0.085,
+        delaySec: index * 0.028,
+      })
+    })
+
+    // Искра под расходящуюся вспышку в анимации.
+    this.tone(root * 4, 0.18, { wave: 'sine', gain: 0.05, delaySec: 0.06, slideTo: root * 6 })
+    this.click(0.1, 5_000)
   }
 
   /** Тик отсчёта 3-2-1. */

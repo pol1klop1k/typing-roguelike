@@ -9,6 +9,8 @@
   --color-term: #5cff9d;
   --color-term-bright: #ccffe2;
   --color-term-amber: #ffc857;
+  /* Верхняя ступень множителя: раскалённое добела, ни с чем не спутать. */
+  --color-term-hot: #fff6d6;
   --color-term-red: #ff5f56;
 
   --font-mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas,

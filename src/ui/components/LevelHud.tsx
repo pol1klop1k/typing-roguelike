@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
 import { BALANCE } from '../../core/balance'
 import type { Language, LevelSnapshot } from '../../core/types'
-import { comboTier, nextTierAt } from '../comboStyle'
+import { comboTier, multTier, nextTierAt } from '../intensity'
 
 interface LevelHudProps {
   snapshot: LevelSnapshot
@@ -41,6 +41,7 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
   const scoreRatio = Math.min(1, snapshot.score / snapshot.targetScore)
 
   const tier = comboTier(snapshot.combo)
+  const heat = multTier(snapshot.mult)
   const nextTier = nextTierAt(snapshot.combo)
   const tierProgress =
     nextTier === null ? 1 : (snapshot.combo - tier.min) / (nextTier - tier.min)
@@ -89,7 +90,7 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
             // Рывок только при смене ступени: дёргать число на каждом
             // символе - значит превратить панель в мигающий шум.
             key={tier.level}
-            className={`glow leading-none tabular-nums ${tier.hudSize} ${tier.color}`}
+            className={`glow leading-none tabular-nums text-term-bright ${tier.hudSize}`}
             initial={{ scale: 1.5 }}
             animate={
               tier.pulse ? { scale: 1, opacity: [1, 0.6, 1] } : { scale: 1, opacity: 1 }
@@ -104,25 +105,31 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
           </motion.span>
           <div className="h-1 w-28 border border-term-line bg-term-bg">
             <motion.div
-              className={`h-full ${tier.level >= 2 ? 'bg-term-amber' : 'bg-term'}`}
+              className={`h-full ${tier.level >= 2 ? 'bg-term-bright' : 'bg-term'}`}
               animate={{ width: `${Math.max(0, Math.min(1, tierProgress)) * 100}%` }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
             />
           </div>
         </div>
 
+        {/* Множитель решает счёт, поэтому у него свой блок и своя шкала
+            цвета - та же, что у высоты тона в звуке слова. */}
+        <div className="flex flex-col gap-1">
+          <div className="text-[0.7rem] tracking-[0.25em] text-term-muted uppercase">
+            {labels.mult}
+          </div>
+          <motion.span
+            key={snapshot.mult}
+            className={`${heat.glow} text-3xl leading-none tabular-nums ${heat.color}`}
+            initial={{ scale: 1.3 }}
+            animate={{ scale: 1 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 16 }}
+          >
+            x{snapshot.mult.toFixed(1)}
+          </motion.span>
+        </div>
+
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs tracking-widest uppercase">
-          <Readout label={labels.mult}>
-            <motion.span
-              key={snapshot.mult}
-              className="glow text-lg text-term-amber"
-              initial={{ scale: 1.3 }}
-              animate={{ scale: 1 }}
-              transition={{ type: 'spring', stiffness: 500, damping: 16 }}
-            >
-              x{snapshot.mult.toFixed(1)}
-            </motion.span>
-          </Readout>
           <Readout label={labels.errors}>
             <span className={`text-lg ${snapshot.errors > 0 ? 'text-term-red' : 'text-term-dim'}`}>
               {snapshot.errors}

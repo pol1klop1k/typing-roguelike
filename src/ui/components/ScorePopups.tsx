@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { comboTier } from '../comboStyle'
+import { comboTier, multTier } from '../intensity'
 
 export interface ScorePopup {
   readonly id: number
@@ -18,8 +18,9 @@ export interface ScorePopup {
  * Появляются вплотную к курсору, а не в углу экрана: во время печати взгляд
  * прикован к текущему символу и ничего за его пределами просто не замечает.
  *
- * Размер и цвет суммы растут вместе с комбо, а на верхней ступени
- * добавляются вспышка и дрожь.
+ * Две оси сразу: цвет и свечение показывают множитель, размер и вспышка -
+ * комбо. После ошибки цифра остаётся горячей, но теряет размер, и по одному
+ * этому видно, что именно случилось.
  */
 export function ScorePopups({ popups }: { popups: readonly ScorePopup[] }) {
   return (
@@ -27,6 +28,7 @@ export function ScorePopups({ popups }: { popups: readonly ScorePopup[] }) {
       <AnimatePresence>
         {popups.map((popup) => {
           const tier = comboTier(popup.combo)
+          const heat = multTier(popup.mult)
           // На первой строке над курсором мало места: подъём ограничен,
           // иначе очки уезжают под верхнюю панель и их не видно.
           const lift = Math.min(64, Math.max(6, popup.y - 6))
@@ -45,7 +47,7 @@ export function ScorePopups({ popups }: { popups: readonly ScorePopup[] }) {
                 {tier.epic ? <EpicBurst /> : null}
 
                 <motion.div
-                  className={`${tier.epic ? 'glow-hot' : 'glow'} text-center leading-none font-bold ${tier.popupSize} ${tier.color}`}
+                  className={`${tier.epic ? 'glow-hot' : heat.glow} text-center leading-none font-bold ${tier.popupSize} ${heat.color}`}
                   animate={
                     tier.epic
                       ? { x: [0, -7, 7, -5, 5, -3, 3, 0], rotate: [0, -3.5, 3.5, -2, 2, -1, 0] }
@@ -62,7 +64,7 @@ export function ScorePopups({ popups }: { popups: readonly ScorePopup[] }) {
               </div>
 
               <div className="mt-1 text-center text-sm tracking-[0.2em] whitespace-nowrap text-term-muted">
-                {popup.chips} x {popup.mult.toFixed(1)}
+                {popup.chips} <span className={heat.color}>x {popup.mult.toFixed(1)}</span>
               </div>
             </motion.div>
           )
