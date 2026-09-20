@@ -1,7 +1,7 @@
 import { motion } from 'motion/react'
 import { BALANCE } from '../../core/balance'
 import type { Language, LevelSnapshot } from '../../core/types'
-import { comboTier, multTier, nextTierAt } from '../intensity'
+import { multTier, nextMultTierAt } from '../intensity'
 
 interface LevelHudProps {
   snapshot: LevelSnapshot
@@ -40,11 +40,10 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
   const timeRatio = snapshot.totalTimeMs === 0 ? 0 : snapshot.timeLeftMs / snapshot.totalTimeMs
   const scoreRatio = Math.min(1, snapshot.score / snapshot.targetScore)
 
-  const tier = comboTier(snapshot.combo)
   const heat = multTier(snapshot.mult)
-  const nextTier = nextTierAt(snapshot.combo)
+  const nextTier = nextMultTierAt(snapshot.mult)
   const tierProgress =
-    nextTier === null ? 1 : (snapshot.combo - tier.min) / (nextTier - tier.min)
+    nextTier === null ? 1 : (snapshot.mult - heat.min) / (nextTier - heat.min)
 
   return (
     <div className="grid shrink-0 grid-cols-1 gap-4 border-b border-term-line px-4 py-3 sm:grid-cols-2 sm:gap-8">
@@ -81,55 +80,41 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
       </Gauge>
 
       <div className="col-span-full flex flex-wrap items-end gap-x-8 gap-y-3">
-        {/* Комбо - главный индикатор серии, поэтому крупнее остальных счётчиков. */}
+        {/* Единственный выделенный показатель. Он решает счёт, его шкала
+            цвета совпадает со шкалой высоты тона в звуке слова. */}
         <div className="flex min-w-32 flex-col gap-1">
           <div className="text-[0.7rem] tracking-[0.25em] text-term-muted uppercase">
-            {labels.combo}
+            {labels.mult}
           </div>
           <motion.span
             // Рывок только при смене ступени: дёргать число на каждом
-            // символе - значит превратить панель в мигающий шум.
-            key={tier.level}
-            className={`glow leading-none tabular-nums text-term-bright ${tier.hudSize}`}
+            // слове - значит превратить панель в мигающий шум.
+            key={heat.level}
+            className={`${heat.glow} leading-none tabular-nums ${heat.hudSize} ${heat.color}`}
             initial={{ scale: 1.5 }}
-            animate={
-              tier.pulse ? { scale: 1, opacity: [1, 0.6, 1] } : { scale: 1, opacity: 1 }
-            }
+            animate={heat.pulse ? { scale: 1, opacity: [1, 0.6, 1] } : { scale: 1, opacity: 1 }}
             transition={
-              tier.pulse
+              heat.pulse
                 ? { scale: { type: 'spring', stiffness: 400, damping: 14 }, opacity: { duration: 0.9, repeat: Infinity } }
                 : { type: 'spring', stiffness: 400, damping: 14 }
             }
           >
-            {snapshot.combo}
+            x{snapshot.mult.toFixed(1)}
           </motion.span>
           <div className="h-1 w-28 border border-term-line bg-term-bg">
             <motion.div
-              className={`h-full ${tier.level >= 2 ? 'bg-term-bright' : 'bg-term'}`}
+              className={`h-full ${heat.level >= 2 ? 'bg-term-hot' : 'bg-term'}`}
               animate={{ width: `${Math.max(0, Math.min(1, tierProgress)) * 100}%` }}
               transition={{ duration: 0.15, ease: 'easeOut' }}
             />
           </div>
         </div>
 
-        {/* Множитель решает счёт, поэтому у него свой блок и своя шкала
-            цвета - та же, что у высоты тона в звуке слова. */}
-        <div className="flex flex-col gap-1">
-          <div className="text-[0.7rem] tracking-[0.25em] text-term-muted uppercase">
-            {labels.mult}
-          </div>
-          <motion.span
-            key={snapshot.mult}
-            className={`${heat.glow} text-3xl leading-none tabular-nums ${heat.color}`}
-            initial={{ scale: 1.3 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring', stiffness: 500, damping: 16 }}
-          >
-            x{snapshot.mult.toFixed(1)}
-          </motion.span>
-        </div>
-
+        {/* Комбо, ошибки и символы в слове - обычные счётчики без оформления. */}
         <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 text-xs tracking-widest uppercase">
+          <Readout label={labels.combo}>
+            <span className="text-lg text-term-muted">{snapshot.combo}</span>
+          </Readout>
           <Readout label={labels.errors}>
             <span className={`text-lg ${snapshot.errors > 0 ? 'text-term-red' : 'text-term-dim'}`}>
               {snapshot.errors}

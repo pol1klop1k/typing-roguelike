@@ -1,50 +1,25 @@
 /**
- * Визуальный язык силы игрока. Две независимые оси, а не одна.
+ * Визуальный язык силы игрока. Одна ось - множитель.
  *
- *   множитель -> цвет и свечение
- *   комбо     -> размер и вспышка
+ * Комбо сознательно не получает никакого оформления. Во время печати оно
+ * игрока не занимает: это просто счётчик подряд идущих символов, на решения
+ * он не влияет. Решает множитель - он определяет счёт, и именно его нужно
+ * видеть боковым зрением, не отрываясь от текста.
  *
- * Разделение не формальное: комбо обнуляется от любой ошибки, а множитель
- * только проседает на 0.6. После промаха цифра остаётся горячей по цвету,
- * но теряет размер - и это ровно та информация, которая нужна игроку.
+ * Шкала цвета повторяет шкалу звука: чем выше множитель, тем выше тон ноты
+ * за слово и тем горячее цифра. Зелёный - яркий - белый.
  *
- * Цвет множителя повторяет то, что уже делает звук: чем выше множитель,
- * тем выше тон. Теперь то же самое видно глазами.
- *
- * Красный не используется ни на одной оси: он занят ошибками.
+ * Янтарный из шкалы убран намеренно: рядом с белым калением он читался как
+ * конкурирующая, а не предыдущая ступень. Красный не используется вовсе,
+ * он занят ошибками.
  */
-
-// ---------------------------------------------------------------- множитель
 
 export interface MultTier {
   readonly level: 0 | 1 | 2 | 3
   readonly min: number
   readonly color: string
-  /** Верхняя ступень светится заметно сильнее обычного. */
   readonly glow: string
-}
-
-const MULT_TIERS: readonly MultTier[] = [
-  { level: 0, min: 1, color: 'text-term', glow: 'glow' },
-  { level: 1, min: 2, color: 'text-term-bright', glow: 'glow' },
-  { level: 2, min: 3.5, color: 'text-term-amber', glow: 'glow' },
-  { level: 3, min: 5, color: 'text-term-hot', glow: 'glow-hot' },
-]
-
-export function multTier(mult: number): MultTier {
-  let current = MULT_TIERS[0]!
-  for (const tier of MULT_TIERS) {
-    if (mult >= tier.min) current = tier
-  }
-  return current
-}
-
-// -------------------------------------------------------------------- комбо
-
-export interface ComboTier {
-  readonly level: 0 | 1 | 2 | 3
-  readonly min: number
-  /** Кегль суммы в вылетающих очках. Ровная лесенка с шагом 0.375rem. */
+  /** Кегль суммы в вылетающих очках. Ровная лесенка с шагом 0.25rem. */
   readonly popupSize: string
   readonly hudSize: string
   /** Верхняя ступень дышит в панели. */
@@ -53,10 +28,12 @@ export interface ComboTier {
   readonly epic: boolean
 }
 
-const COMBO_TIERS: readonly ComboTier[] = [
+const TIERS: readonly MultTier[] = [
   {
     level: 0,
-    min: 0,
+    min: 1,
+    color: 'text-term',
+    glow: 'glow',
     popupSize: 'text-[1.875rem] sm:text-[2.25rem]',
     hudSize: 'text-2xl',
     pulse: false,
@@ -64,40 +41,46 @@ const COMBO_TIERS: readonly ComboTier[] = [
   },
   {
     level: 1,
-    min: 20,
-    popupSize: 'text-[2.25rem] sm:text-[2.75rem]',
+    min: 2,
+    color: 'text-term-bright',
+    glow: 'glow',
+    popupSize: 'text-[2.125rem] sm:text-[2.5rem]',
     hudSize: 'text-3xl',
     pulse: false,
     epic: false,
   },
   {
     level: 2,
-    min: 50,
-    popupSize: 'text-[2.625rem] sm:text-[3.25rem]',
+    min: 3.5,
+    color: 'text-term-hot',
+    glow: 'glow',
+    popupSize: 'text-[2.375rem] sm:text-[2.75rem]',
     hudSize: 'text-4xl',
     pulse: false,
     epic: false,
   },
   {
     level: 3,
-    min: 100,
-    popupSize: 'text-[3rem] sm:text-[3.75rem]',
+    min: 5,
+    color: 'text-term-hot',
+    glow: 'glow-hot',
+    popupSize: 'text-[2.625rem] sm:text-[3rem]',
     hudSize: 'text-5xl',
     pulse: true,
     epic: true,
   },
 ]
 
-export function comboTier(combo: number): ComboTier {
-  let current = COMBO_TIERS[0]!
-  for (const tier of COMBO_TIERS) {
-    if (combo >= tier.min) current = tier
+export function multTier(mult: number): MultTier {
+  let current = TIERS[0]!
+  for (const tier of TIERS) {
+    if (mult >= tier.min) current = tier
   }
   return current
 }
 
-/** Комбо, с которого начинается следующая ступень. Null на последней. */
-export function nextTierAt(combo: number): number | null {
-  const next = COMBO_TIERS.find((tier) => tier.min > combo)
+/** Множитель, с которого начинается следующая ступень. Null на последней. */
+export function nextMultTierAt(mult: number): number | null {
+  const next = TIERS.find((tier) => tier.min > mult)
   return next ? next.min : null
 }

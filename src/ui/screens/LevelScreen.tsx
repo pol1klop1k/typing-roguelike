@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { sfx } from '../../audio/sfx'
 import { BALANCE } from '../../core/balance'
 import { useGameStore } from '../../state/gameStore'
-import { comboTier } from '../intensity'
+import { multTier } from '../intensity'
 import { LevelHud } from '../components/LevelHud'
 import { ScorePopups, type ScorePopup } from '../components/ScorePopups'
 import { TerminalFrame } from '../components/TerminalFrame'
@@ -92,14 +92,13 @@ export function LevelScreen() {
           const scored = outcome.wordScored
           const id = popupId.current++
           const { x, y } = cursorPosition(textAreaRef.current)
-          const combo = useGameStore.getState().snapshot?.combo ?? 0
-          // Звук тот же, что и анимация: на предельном комбо вместо
+          // Звук тот же, что и анимация: на предельном множителе вместо
           // одиночной ноты звучит аккорд под расходящуюся вспышку.
-          if (comboTier(combo).epic) sfx.wordEpic(scored.mult)
+          if (multTier(scored.mult).epic) sfx.wordEpic(scored.mult)
           else sfx.word(scored.mult)
           setPopups((current) => [
             ...current,
-            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, combo, x, y },
+            { id, gained: scored.gained, chips: scored.chips, mult: scored.mult, x, y },
           ])
           window.setTimeout(() => {
             setPopups((current) => current.filter((popup) => popup.id !== id))
