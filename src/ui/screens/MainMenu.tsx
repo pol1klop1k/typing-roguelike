@@ -1,7 +1,6 @@
 import { motion } from 'motion/react'
 import { useEffect } from 'react'
 import { sfx } from '../../audio/sfx'
-import { TEXTS } from '../../content/texts'
 import { BALANCE } from '../../core/balance'
 import { requiredWpm, wallStep } from '../../core/difficulty'
 import { useGameStore } from '../../state/gameStore'
@@ -85,7 +84,7 @@ export function MainMenu() {
   }, [beginRun])
 
   return (
-    <TerminalFrame title="signal // boot" right={`${TEXTS.length} ${labels.nodes}`}>
+    <TerminalFrame title="signal // boot" right={`${BALANCE.runLength} ${labels.nodes}`}>
       <div className="flex min-h-0 flex-1 flex-col justify-center gap-10 overflow-y-auto px-6 py-8 sm:px-12">
         <div>
           <motion.h1

@@ -1,0 +1,193 @@
+{
+  "numbers": {
+    "wpmGrowthPerNode": 1.06,
+    "wpmFactorFrom": 0.7,
+    "bossFactor": 1.25,
+    "actLength": 10,
+    "levelDurationFromMs": 45000,
+    "levelDurationToMs": 30000,
+    "levelTextReserve": 1.15,
+    "rewardBase": 2,
+    "rewardPerStep": 0.1,
+    "rewardTimeSecPerCredit": 5,
+    "rewardTimeMax": 4,
+    "falseStartMult": 1,
+    "brutForceChips": 2,
+    "secondChanceCooldownMs": 10000,
+    "capsGodPerCap": 2,
+    "guillotineNumerator": 1.5,
+    "guillotineFloorMs": 150,
+    "freezeTimeScale": 2,
+    "autocompleteChance": 0.05,
+    "adrenalineMaxMult": 3,
+    "lotterySymbols": 5,
+    "lotteryTargetShare": 0.2
+  },
+  "rarities": {
+    "serial": {
+      "weight": 36.5,
+      "basePrice": 3,
+      "label": {
+        "ru": "СЕРИЙНОЕ",
+        "en": "SERIAL"
+      }
+    },
+    "offspec": {
+      "weight": 28,
+      "basePrice": 5,
+      "label": {
+        "ru": "НЕШТАТНОЕ",
+        "en": "OFF-SPEC"
+      }
+    },
+    "prototype": {
+      "weight": 18.7,
+      "basePrice": 8,
+      "label": {
+        "ru": "ОПЫТНОЕ",
+        "en": "PROTOTYPE"
+      }
+    },
+    "classified": {
+      "weight": 11.5,
+      "basePrice": 10,
+      "label": {
+        "ru": "ЗАКРЫТОЕ",
+        "en": "CLASSIFIED"
+      }
+    },
+    "unlogged": {
+      "weight": 5.3,
+      "basePrice": 14,
+      "label": {
+        "ru": "НЕУЧТЕННОЕ",
+        "en": "UNLOGGED"
+      }
+    }
+  },
+  "items": {
+    "falsestart": {
+      "rarity": "serial",
+      "name": {
+        "ru": "falsestart",
+        "en": "falsestart"
+      },
+      "description": {
+        "ru": "Увеличивает множитель, с которого начинается уровень, на 1.",
+        "en": "Increase mult the level begins per 1."
+      }
+    },
+    "carliccase": {
+      "rarity": "offspec",
+      "name": {
+        "ru": "carliccase",
+        "en": "carliccase"
+      },
+      "description": {
+        "ru": "Заглавные буквы можно печатать строчными.",
+        "en": "Capital letters may be typed in lower case."
+      }
+    },
+    "brutforce": {
+      "rarity": "offspec",
+      "price": 6,
+      "name": {
+        "ru": "A++",
+        "en": "A++"
+      },
+      "description": {
+        "ru": "Каждый верный символ засчитывается за 2.",
+        "en": "Every correct keystroke is worth 2 more chips."
+      }
+    },
+    "secondchance": {
+      "rarity": "classified",
+      "name": {
+        "ru": "second chance",
+        "en": "second chance"
+      },
+      "description": {
+        "ru": "Одна ошибка прощается.",
+        "en": "One mistake is forgiven."
+      }
+    },
+    "capsgod": {
+      "rarity": "prototype",
+      "price": 6,
+      "name": {
+        "ru": "CAPSGOD",
+        "en": "CAPSGOD"
+      },
+      "description": {
+        "ru": "Каждая заглавная увеличивает итоговый множитель в 2 раза.",
+        "en": "Every capital typed inside a word multiplies that word multiplier by 2 per capital: two capitals give x4, three give x6. It counts the keystroke, not the letter in the text."
+      }
+    },
+    "lowkey": {
+      "rarity": "prototype",
+      "name": {
+        "ru": "lowkey",
+        "en": "lowkey"
+      },
+      "description": {
+        "ru": "Строчные буквы можно печатать в любом регистре.",
+        "en": "Lower case letters may be typed in any case."
+      }
+    },
+    "guillotine": {
+      "rarity": "prototype",
+      "name": {
+        "ru": "guillotine",
+        "en": "guillotine"
+      },
+      "description": {
+        "ru": "Множитель слова умножается на 1.5/t, где t - время потраченное на слово.",
+        "en": "The word multiplier is multiplied by 1.5 divided by the seconds the word took. Under a second and a half it is a bonus, over it is a cut."
+      }
+    },
+    "freeze": {
+      "rarity": "unlogged",
+      "name": {
+        "ru": "freeze",
+        "en": "freeze"
+      },
+      "description": {
+        "ru": "Время уровня течет в 2 раза медленнее.",
+        "en": "Level time runs 2 times slower."
+      }
+    },
+    "autocomplete": {
+      "rarity": "unlogged",
+      "name": {
+        "ru": "autocomplete",
+        "en": "autocomplete"
+      },
+      "description": {
+        "ru": "Верно набранный символ с шансом 5% дописывает слово до конца.",
+        "en": "Every correct keystroke has a 5% chance to finish the word for you."
+      }
+    },
+    "adrenaline": {
+      "rarity": "classified",
+      "name": {
+        "ru": "adrenaline",
+        "en": "adrenaline"
+      },
+      "description": {
+        "ru": "Чем меньше на таймере времени, тем дороже каждый символ.",
+        "en": "The less time on the clock, the more every keystroke is worth."
+      }
+    },
+    "lottery": {
+      "rarity": "classified",
+      "name": {
+        "ru": "lottery",
+        "en": "lottery"
+      },
+      "description": {
+        "ru": "В начале уровня появляется необычная лоттерея...",
+        "en": "At the level start unusual lottery appears..."
+      }
+    }
+  }
+}

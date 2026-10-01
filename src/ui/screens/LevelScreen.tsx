@@ -5,6 +5,7 @@ import { BALANCE } from '../../core/balance'
 import type { WordScored } from '../../core/level'
 import { activeText, useGameStore } from '../../state/gameStore'
 import { multTier } from '../intensity'
+import { CreditsMeter } from '../components/CreditsMeter'
 import { ItemBar } from '../components/ItemBar'
 import { LevelHud } from '../components/LevelHud'
 import { ScorePopups, type ScorePopup } from '../components/ScorePopups'
@@ -173,7 +174,12 @@ export function LevelScreen() {
   return (
     <TerminalFrame
       title={`${run.levelIndex + 1}/${run.totalLevels} ${variant.title}`}
-      right={labels.abort}
+      right={
+        <span className="flex items-baseline gap-4">
+          <CreditsMeter credits={run.credits} language={language} />
+          <span className="hidden sm:inline">{labels.abort}</span>
+        </span>
+      }
     >
       <motion.div animate={shake} className="flex min-h-0 flex-1 flex-col">
         <LevelHud snapshot={snapshot} language={language} />

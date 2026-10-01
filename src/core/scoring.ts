@@ -45,3 +45,35 @@ export function computeAccuracy(correctChars: number, errors: number): number {
   if (total === 0) return 100
   return Math.round((correctChars / total) * 100)
 }
+
+/** Награда за взятый узел, разложенная на слагаемые для экрана итогов. */
+export interface Payout {
+  /** База за место узла в забеге. */
+  readonly base: number
+  /** Надбавка за незакончившееся время. */
+  readonly timeBonus: number
+  readonly total: number
+}
+
+/**
+ * Награда за узел: база плюс надбавка за запас времени.
+ *
+ * Надбавка считается по часам УРОВНЯ, то есть по той самой цифре, которую
+ * игрок видел на таймере. Это осознанное расхождение со скоростью и
+ * точностью, которые считаются по реальным часам (см. правило 4 в
+ * architecture.md): платить за что-то, кроме числа на экране, значит врать
+ * игроку. Побочный эффект - замедление времени приносит деньги. Это законная
+ * выгода билда, оплаченная слотами инвентаря и ограниченная потолком.
+ *
+ * Функция чистая и ничего не знает про победу: за поражение её просто не
+ * вызывают.
+ */
+export function levelPayout(base: number, timeLeftMs: number): Payout {
+  // Ноль в наладке превратил бы деление в бесконечность, а надбавку - в
+  // потолок на каждом узле. Считаем это отключённой надбавкой.
+  const perCredit = BALANCE.rewardTimeSecPerCredit * 1_000
+  const earned = perCredit <= 0 ? 0 : Math.floor(timeLeftMs / perCredit)
+  const timeBonus = Math.max(0, Math.min(BALANCE.rewardTimeMax, earned))
+
+  return { base, timeBonus, total: base + timeBonus }
+}

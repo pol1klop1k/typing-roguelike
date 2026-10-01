@@ -1,21 +1,33 @@
 import { motion } from 'motion/react'
 import { useEffect } from 'react'
 import { sfx } from '../../audio/sfx'
-import { findItem } from '../../content/items'
+import { findItem, RARITY_TEXT } from '../../content/items'
 import { findText } from '../../content/texts'
 import { BALANCE } from '../../core/balance'
 import { canAfford, hasFreeSlot } from '../../core/run'
 import { useGameStore } from '../../state/gameStore'
-import type { Language } from '../../core/types'
+import type { Language, Rarity } from '../../core/types'
+import { CreditsMeter } from '../components/CreditsMeter'
 import { ItemBar } from '../components/ItemBar'
 import { TerminalButton } from '../components/TerminalButton'
 import { TerminalFrame } from '../components/TerminalFrame'
+
+/**
+ * Класс ступени редкости. Сами эффекты лежат в index.css: там же keyframes
+ * глитча для неучтённого, которые в Tailwind не выразить.
+ */
+const RARITY_TONE: Readonly<Record<Rarity, string>> = {
+  serial: 'rarity-serial',
+  offspec: 'rarity-offspec',
+  prototype: 'rarity-prototype',
+  classified: 'rarity-classified',
+  unlogged: 'rarity-unlogged',
+}
 
 const LABELS = {
   ru: {
     title: 'СКЛАД',
     sub: 'Узел взят. Пока сеть пересобирает маршруты, у тебя есть минута на складе.',
-    credits: 'Кредиты',
     buy: 'Взять',
     noMoney: 'Не хватает',
     noSlot: 'Нет слота',
@@ -30,7 +42,6 @@ const LABELS = {
   en: {
     title: 'DEPOT',
     sub: 'Node taken. While the network rebuilds its routes, you have a minute in the depot.',
-    credits: 'Credits',
     buy: 'Take',
     noMoney: 'Too expensive',
     noSlot: 'No slot',
@@ -74,7 +85,10 @@ export function ShopScreen() {
   const canReroll = canAfford(run, BALANCE.rerollCost)
 
   return (
-    <TerminalFrame title="signal // depot" right={`${labels.credits}: ${run.credits}`}>
+    <TerminalFrame
+      title="signal // depot"
+      right={<CreditsMeter credits={run.credits} language={language} />}
+    >
       <ItemBar items={run.items} language={language} onDrop={drop} />
 
       <div className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-6 sm:px-10">
@@ -174,7 +188,16 @@ function OfferCard({
       </div>
 
       <div>
-        <div className="text-sm tracking-[0.15em] text-term uppercase">{text.name}</div>
+        {/* data-text нужен глитчу: двойники надписи рисуются из него. */}
+        <div
+          className={`text-[0.65rem] tracking-[0.2em] ${RARITY_TONE[item.rarity]}`}
+          data-text={RARITY_TEXT[item.rarity][language]}
+        >
+          {RARITY_TEXT[item.rarity][language]}
+        </div>
+        {/* Регистр названия авторский и ломать его uppercase нельзя: lowkey
+            пишется строчными, CapsGod - горбом. */}
+        <div className="mt-1 text-sm tracking-[0.15em] text-term">{text.name}</div>
         <p className="mt-1 text-xs leading-relaxed text-term-muted">{text.description}</p>
       </div>
 

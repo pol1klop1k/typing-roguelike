@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { findForbiddenChars, isLayoutMismatch, isTypableKey, splitWords, wordIndexAt } from './typing'
+import {
+  findForbiddenChars,
+  isLayoutMismatch,
+  isTypableKey,
+  pageIndexAt,
+  paginateWords,
+  splitWords,
+  wordIndexAt,
+} from './typing'
 
 describe('splitWords', () => {
   it('прикрепляет хвостовой пробел к слову слева', () => {
@@ -68,5 +76,68 @@ describe('findForbiddenChars', () => {
 
   it('пропускает обычную клавиатурную пунктуацию', () => {
     expect(findForbiddenChars('Привет, мир! Это - тест 42.')).toEqual([])
+  })
+})
+
+describe('страницы текста', () => {
+  const words = splitWords('раз два три четыре пять шесть')
+
+  it('не превышают заданную длину', () => {
+    const pages = paginateWords(words, 10)
+    // Исключения ровно два: слово длиннее страницы рвать нельзя, а
+    // последняя страница могла впитать короткий хвост.
+    for (const page of pages.slice(0, -1)) {
+      const chars = page.reduce((sum, word) => sum + (word.end - word.start), 0)
+      if (page.length > 1) expect(chars).toBeLessThanOrEqual(10)
+    }
+  })
+
+  it('приклеивает короткий хвост к предыдущей странице', () => {
+    // Смена страницы - вспышка на весь экран, и на огрызок её тратить незачем.
+    const pages = paginateWords(splitWords('аааа бббб вввв гггг д'), 10)
+    const last = pages[pages.length - 1]!
+    const chars = last.reduce((sum, word) => sum + (word.end - word.start), 0)
+    expect(chars).toBeGreaterThan(10 / 4)
+  })
+
+  it('сохраняют все слова и их порядок', () => {
+    expect(paginateWords(words, 10).flat()).toEqual(words)
+  })
+
+  it('не зависят от курсора: страница всегда одна и та же', () => {
+    // Иначе текст шевелился бы под пальцами игрока.
+    expect(paginateWords(words, 10)).toEqual(paginateWords(words, 10))
+  })
+
+  it('дают слову длиннее страницы отдельную страницу, а не рвут его', () => {
+    const long = splitWords('коротко невероятноуженевместимоедлинноеслово')
+    const pages = paginateWords(long, 8)
+    expect(pages.flat()).toEqual(long)
+    expect(pages.every((page) => page.length >= 1)).toBe(true)
+  })
+
+  it('на пустом тексте не падает', () => {
+    expect(paginateWords([], 10)).toEqual([])
+    expect(pageIndexAt([], 0)).toBe(0)
+  })
+})
+
+describe('номер страницы под курсором', () => {
+  const words = splitWords('раз два три четыре пять шесть')
+  const pages = paginateWords(words, 8)
+
+  it('в начале текста показывает первую страницу', () => {
+    expect(pageIndexAt(pages, 0)).toBe(0)
+  })
+
+  it('переключается ровно на конце страницы, а не раньше', () => {
+    const firstEnd = pages[0]![pages[0]!.length - 1]!.end
+    expect(pageIndexAt(pages, firstEnd - 1)).toBe(0)
+    expect(pageIndexAt(pages, firstEnd)).toBe(1)
+  })
+
+  it('на дописанном тексте остаётся на последней странице', () => {
+    const total = words[words.length - 1]!.end
+    expect(pageIndexAt(pages, total)).toBe(pages.length - 1)
   })
 })

@@ -7,11 +7,13 @@
  * и озвучить, — задача интерфейса.
  */
 import { BALANCE } from './balance'
-import { ModifierRuntime, type Modifier } from './effects'
+import { ModifierRuntime, type HookName, type HookPayload, type Modifier } from './effects'
+import { createRng } from './rng'
 import {
   computeAccuracy,
   computeCpm,
   computeWpm,
+  levelPayout,
   nextMult,
   scoreWord,
   timePenaltyMs,
@@ -28,9 +30,16 @@ export interface LevelConfig {
   readonly text: string
   readonly targetScore: number
   readonly durationMs: number
+  /** База награды за узел. Надбавку за запас времени считает сам уровень. */
   readonly reward: number
   /** Скорость, которой требует узел. Ядро её только показывает. */
   readonly requiredWpm?: number
+  /**
+   * Сид случайности уровня. Забег обязан воспроизводиться, поэтому предметы
+   * тянут случайность отсюда, а не из Math.random. Без сида уровень всё равно
+   * детерминирован - просто одинаков от запуска к запуску.
+   */
+  readonly seed?: number | string
   /** Предметы, эффекты босса и модификаторы уровня. В прототипе пусто. */
   readonly modifiers?: readonly Modifier[]
 }
@@ -94,6 +103,25 @@ export class LevelSession {
   private deadlineAt = 0
   private endedAt: number | null = null
 
+  /**
+   * Замедление часов уровня. Объявляется предметами на старте.
+   *
+   * Внутри класса ВСЁ считается по часам уровня: таймер, откаты, окно после
+   * ошибки, время слова. Реальное время остаётся только там, где меряется
+   * сам игрок, то есть в скорости печати: замедление даёт больше секунд на
+   * уровень, но не делает пальцы быстрее и не должно врать об этом в итогах.
+   */
+  private timeScale = 1
+  /** Момент по реальным часам, с которого ход времени разошёлся с реальным. */
+  private scaleSince: number | null = null
+
+  private realNow = 0
+  private realStartedAt = 0
+  private realEndedAt: number | null = null
+
+  /** Начало текущего слова по часам уровня. null - слово ещё не начато. */
+  private wordStartedAt: number | null = null
+
   constructor(config: LevelConfig) {
     this.text = config.text
     this.words = splitWords(config.text)
@@ -101,51 +129,93 @@ export class LevelSession {
     this.durationMs = config.durationMs
     this.reward = config.reward
     this.requiredWpm = config.requiredWpm ?? 0
-    this.runtime = new ModifierRuntime(config.modifiers ?? [])
+    this.runtime = new ModifierRuntime(config.modifiers ?? [], createRng(config.seed ?? 0))
+  }
+
+  /**
+   * Переводит реальные часы в часы уровня.
+   *
+   * До старта отсчёта они совпадают: замедлять «три-два-один» незачем.
+   * После - реальные миллисекунды делятся на масштаб, поэтому за двенадцать
+   * реальных секунд таймер уровня теряет десять.
+   */
+  private levelTime(realNow: number): number {
+    if (this.scaleSince === null) return realNow
+    return this.scaleSince + (realNow - this.scaleSince) / this.timeScale
+  }
+
+  /**
+   * Прогоняет хук и применяет то, что предметы вернули НЕ через свои поля:
+   * пока это только подаренный счёт.
+   *
+   * Обёртка существует, чтобы правило жило в одном месте. Девять вызовов
+   * хуков, каждый со своей проверкой победы, разошлись бы при первой же
+   * правке, и подарок, добравший цель, где-нибудь остался бы незамеченным.
+   */
+  private runHook<K extends HookName>(hook: K, now: number, payload: HookPayload<K>) {
+    const context = this.runtime.run(hook, now, payload)
+
+    if (context.bonusScore > 0) {
+      this.score += context.bonusScore
+      if (this.score >= this.targetScore) this.finish('won', null)
+    }
+
+    return context
   }
 
   /** Запускает отсчёт 3-2-1. Таймер уровня пойдёт после него. */
   start(now: number): void {
     if (this.phase !== 'idle') return
+    this.realNow = now
     this.now = now
     this.phase = 'countdown'
     this.countdownEndsAt = now + BALANCE.countdownMs
-    // Стартовый множитель - это данные, а не константа: предмет вроде
-    // «Фальстарта» поднимает его, не трогая ядро.
-    this.mult = this.runtime.run('onLevelStart', now, {
+    // Стартовый множитель и ход часов - это данные, а не константы:
+    // «Фальстарт» поднимает множитель, «Заморозка» растягивает время,
+    // и ядру не приходится знать ни про то, ни про другое.
+    const started = this.runHook('onLevelStart', now, {
       snapshot: this.snapshot,
       now,
+      text: this.text,
       mult: this.mult,
-    }).mult
+      timeScale: this.timeScale,
+    })
+    this.mult = started.mult
+    this.timeScale = started.timeScale > 0 ? started.timeScale : 1
   }
 
   /** Продвигает часы. Вызывается каждый кадр и не считает ничего, кроме времени. */
   tick(now: number): void {
-    this.now = now
+    this.realNow = now
+    this.now = this.levelTime(now)
 
     if (this.phase === 'countdown') {
-      if (now < this.countdownEndsAt) return
+      if (this.now < this.countdownEndsAt) return
       this.phase = 'running'
-      this.startedAt = now
-      this.deadlineAt = now + this.durationMs
+      this.startedAt = this.now
+      this.realStartedAt = now
+      this.deadlineAt = this.now + this.durationMs
+      // С этого мгновения часы уровня отстают от реальных.
+      this.scaleSince = now
     }
 
     if (this.phase !== 'running') return
 
-    const context = this.runtime.run('onTick', now, {
+    const context = this.runHook('onTick', this.now, {
       snapshot: this.snapshot,
-      now,
-      deltaMs: now - this.startedAt,
+      now: this.now,
+      deltaMs: this.now - this.startedAt,
       addTimeMs: 0,
     })
     if (context.addTimeMs !== 0) this.deadlineAt += context.addTimeMs
 
-    if (now >= this.deadlineAt) this.finish('lost', 'time')
+    if (this.now >= this.deadlineAt) this.finish('lost', 'time')
   }
 
   /** Обрабатывает нажатие. `key` — это KeyboardEvent.key, то есть уже с учётом раскладки. */
   pressKey(key: string, now: number): KeyOutcome {
-    this.now = now
+    this.realNow = now
+    this.now = this.levelTime(now)
     if (this.phase !== 'running') return { kind: 'ignored' }
     if (!isTypableKey(key)) return { kind: 'ignored' }
 
@@ -155,7 +225,7 @@ export class LevelSession {
     // Что считается верным вводом, решают предметы: «Регистр» разрешает
     // писать заглавные строчными. Проверка стоит первой, потому что она
     // определяет само понятие ошибки.
-    const check = this.runtime.run('onKeyCheck', now, {
+    const check = this.runHook('onKeyCheck', now, {
       snapshot: this.snapshot,
       now,
       key,
@@ -163,7 +233,7 @@ export class LevelSession {
       accepted: key === expected,
     })
     if (check.accepted) {
-      const wordScored = this.acceptChar(expected)
+      const wordScored = this.acceptChar(expected, key)
       return { kind: 'correct', char: expected, wordScored }
     }
 
@@ -188,7 +258,7 @@ export class LevelSession {
 
     // Промах настоящий. Он пережил окно безопасности и защиту от долбления,
     // поэтому предмет вроде «Второго шанса» тратится только на него.
-    const failure = this.runtime.run('onCharError', now, {
+    const failure = this.runHook('onCharError', now, {
       snapshot: this.snapshot,
       now,
       key,
@@ -197,38 +267,61 @@ export class LevelSession {
     })
 
     if (failure.forgiven) {
-      const wordScored = this.acceptChar(expected)
+      const wordScored = this.acceptChar(expected, key)
       return { kind: 'forgiven', char: expected, wordScored }
     }
 
     return this.rejectChar(key)
   }
 
-  /** Засчитывает символ под курсором и возвращает слово, если оно закрылось. */
-  private acceptChar(char: string): WordScored | null {
-    const context = this.runtime.run('onCharCorrect', this.now, {
+  /**
+   * Засчитывает символ под курсором и возвращает слово, если оно закрылось.
+   *
+   * `char` — то, что стоит в тексте, `key` — то, что игрок нажал. Они
+   * расходятся, когда нажатие простил предмет вроде «Регистра».
+   *
+   * `auto` означает, что символ поставил предмет, а не человек. Такой символ
+   * даёт символы и двигает курсор, но НЕ идёт ни в комбо, ни в число верных
+   * нажатий: по ним считаются скорость и точность в итогах, и приписывать
+   * игроку работу предмета - значит врать ему о собственной скорости
+   * (правило 4 в architecture.md).
+   */
+  private acceptChar(char: string, key: string, auto = false): WordScored | null {
+    if (this.wordStartedAt === null) this.wordStartedAt = this.now
+
+    const context = this.runHook('onCharCorrect', this.now, {
       snapshot: this.snapshot,
       now: this.now,
       char,
+      key,
       isDigit: char >= '0' && char <= '9',
       isUpperCase: char !== char.toLowerCase(),
       isPunctuation: PUNCTUATION.test(char),
       chips: BALANCE.chipsPerChar,
+      auto,
+      completeWord: false,
     })
 
     this.wordChips += context.chips
     this.cursor++
-    this.correctChars++
-    this.combo++
-    if (this.combo > this.maxCombo) this.maxCombo = this.combo
-    this.wrongKey = null
-    this.layoutStreak = 0
-    this.layoutMismatch = false
-    this.safeWindowUntil = 0
+
+    if (!auto) {
+      this.correctChars++
+      this.combo++
+      if (this.combo > this.maxCombo) this.maxCombo = this.combo
+      this.wrongKey = null
+      this.layoutStreak = 0
+      this.layoutMismatch = false
+      this.safeWindowUntil = 0
+    }
 
     let wordScored: WordScored | null = null
     const word = this.words[this.wordIndex]
-    if (word && this.cursor >= word.end) wordScored = this.completeWord(word)
+    if (word && this.cursor >= word.end) {
+      wordScored = this.completeWord(word)
+    } else if (word && context.completeWord) {
+      wordScored = this.fillWord(word)
+    }
 
     if (this.score >= this.targetScore) {
       this.finish('won', null)
@@ -239,22 +332,48 @@ export class LevelSession {
     return wordScored
   }
 
+  /**
+   * Дописывает остаток слова за игрока. Символы берутся из текста как есть,
+   * то есть слово закрывается так, будто его напечатали идеально.
+   *
+   * Каждый символ идёт обычным путём, поэтому предметы, дающие символы за
+   * знак, видят и его. Вложенная просьба дописать игнорируется сама собой:
+   * предмет, который её выставляет, обязан молчать на auto-символах.
+   */
+  private fillWord(word: WordSegment): WordScored | null {
+    let scored: WordScored | null = null
+
+    while (this.cursor < word.end && this.phase === 'running') {
+      const char = this.text[this.cursor]
+      if (char === undefined) break
+      scored = this.acceptChar(char, char, true) ?? scored
+    }
+
+    return scored
+  }
+
   private completeWord(word: WordSegment): WordScored {
     const cleanWord = !this.errorInWord
 
-    const calc = this.runtime.run('onScoreCalc', this.now, {
+    const calc = this.runHook('onScoreCalc', this.now, {
       snapshot: this.snapshot,
       now: this.now,
       word: word.text,
       cleanWord,
+      wordElapsedMs: this.wordStartedAt === null ? 0 : this.now - this.wordStartedAt,
       chips: this.wordChips,
       mult: this.mult,
+      wordMult: 1,
     })
 
-    const gained = scoreWord(calc.chips, calc.mult)
+    // Разовая надбавка умножается на общий множитель только здесь и дальше
+    // не живёт: в onWordComplete уходит чистый mult, из которого и вырастет
+    // множитель следующего слова.
+    const effectiveMult = calc.mult * calc.wordMult
+    const gained = scoreWord(calc.chips, effectiveMult)
     this.score += gained
 
-    const after = this.runtime.run('onWordComplete', this.now, {
+    const after = this.runHook('onWordComplete', this.now, {
       snapshot: this.snapshot,
       now: this.now,
       word: word.text,
@@ -269,13 +388,16 @@ export class LevelSession {
       word: word.text,
       wordIndex: this.wordIndex,
       chips: calc.chips,
-      mult: calc.mult,
+      // Интерфейс показывает тот множитель, который и дал эти очки,
+      // то есть вместе с разовой надбавкой.
+      mult: effectiveMult,
       gained,
     }
 
     this.wordChips = 0
     this.errorInWord = false
     this.wordIndex++
+    this.wordStartedAt = null
 
     return scored
   }
@@ -288,7 +410,7 @@ export class LevelSession {
     this.wrongKey = key
     this.safeWindowUntil = this.now + BALANCE.errorSafeWindowMs
 
-    const context = this.runtime.run('onTimePenalty', this.now, {
+    const context = this.runHook('onTimePenalty', this.now, {
       snapshot: this.snapshot,
       now: this.now,
       errorIndex: this.errors,
@@ -306,20 +428,29 @@ export class LevelSession {
     this.phase = phase
     this.lossReason = reason
     this.endedAt = this.now
+    this.realEndedAt = this.realNow
     this.runtime.run('onLevelEnd', this.now, { snapshot: this.snapshot, now: this.now })
   }
 
-  get snapshot(): LevelSnapshot {
-    const finished = this.phase === 'won' || this.phase === 'lost'
-
-    let timeLeftMs = this.durationMs
-    if (this.phase === 'running') {
-      timeLeftMs = Math.max(0, this.deadlineAt - this.now)
-    } else if (finished) {
-      timeLeftMs = Math.max(0, this.deadlineAt - (this.endedAt ?? this.now))
+  /**
+   * Остаток на таймере по часам уровня. До старта - весь таймер, после конца
+   * уровня - застывший остаток на момент конца.
+   *
+   * Отдельный геттер, потому что число читают двое: срез (его видит игрок) и
+   * итог (по нему начисляется надбавка). Две копии этой арифметики разошлись
+   * бы, и игрок получил бы не то, что было на экране.
+   */
+  private get timeLeftMs(): number {
+    if (this.phase === 'running') return Math.max(0, this.deadlineAt - this.now)
+    if (this.phase === 'won' || this.phase === 'lost') {
+      return Math.max(0, this.deadlineAt - (this.endedAt ?? this.now))
     }
+    return this.durationMs
+  }
 
-    const elapsedMs = this.startedAt === 0 ? 0 : (this.endedAt ?? this.now) - this.startedAt
+  get snapshot(): LevelSnapshot {
+    const timeLeftMs = this.timeLeftMs
+    const payout = levelPayout(this.reward, timeLeftMs)
 
     return {
       phase: this.phase,
@@ -334,7 +465,9 @@ export class LevelSession {
       correctChars: this.correctChars,
       timeLeftMs,
       totalTimeMs: this.durationMs,
-      elapsedMs,
+      elapsedMs: this.realElapsedMs,
+      rewardBase: payout.base,
+      rewardTimeBonus: payout.timeBonus,
       countdownLeftMs:
         this.phase === 'countdown' ? Math.max(0, this.countdownEndsAt - this.now) : 0,
       wrongKey: this.wrongKey,
@@ -346,10 +479,24 @@ export class LevelSession {
     }
   }
 
+  /**
+   * Сколько игрок печатал по РЕАЛЬНЫМ часам.
+   *
+   * Именно это число идёт в скорость и точность. Замедление времени даёт
+   * больше секунд на уровень, но не делает пальцы быстрее, и подмешивать
+   * его сюда значило бы врать игроку о его собственной скорости.
+   */
+  private get realElapsedMs(): number {
+    if (this.realStartedAt === 0) return 0
+    return (this.realEndedAt ?? this.realNow) - this.realStartedAt
+  }
+
   get result(): LevelResult | null {
     if (this.phase !== 'won' && this.phase !== 'lost') return null
     const won = this.phase === 'won'
-    const elapsedMs = (this.endedAt ?? this.now) - this.startedAt
+    const elapsedMs = this.realElapsedMs
+    const timeLeftMs = this.timeLeftMs
+    const payout = levelPayout(this.reward, timeLeftMs)
 
     return {
       won,
@@ -363,7 +510,12 @@ export class LevelSession {
       cpm: computeCpm(this.correctChars, elapsedMs),
       wpm: computeWpm(this.correctChars, elapsedMs),
       accuracy: computeAccuracy(this.correctChars, this.errors),
-      reward: won ? this.reward : 0,
+      timeLeftMs,
+      // Поражение не платит ничего: ни базы, ни надбавки, даже если таймер
+      // остановился на середине из-за кончившегося текста.
+      reward: won ? payout.total : 0,
+      rewardBase: won ? payout.base : 0,
+      rewardTimeBonus: won ? payout.timeBonus : 0,
       requiredWpm: this.requiredWpm,
     }
   }

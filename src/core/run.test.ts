@@ -17,20 +17,32 @@ import {
 } from './run'
 
 const SHOP: readonly ShopEntry[] = [
-  { id: 'a', price: 3 },
-  { id: 'b', price: 5 },
-  { id: 'c', price: 6 },
-  { id: 'd', price: 8 },
-  { id: 'e', price: 4, unique: true },
+  { id: 'a', price: 3, rarity: 'serial' },
+  { id: 'b', price: 5, rarity: 'serial' },
+  { id: 'c', price: 6, rarity: 'offspec' },
+  { id: 'd', price: 8, rarity: 'prototype' },
+  { id: 'e', price: 4, rarity: 'classified', unique: true },
+  { id: 'f', price: 9, rarity: 'serial' },
+  { id: 'g', price: 7, rarity: 'offspec' },
+  { id: 'h', price: 12, rarity: 'unlogged' },
 ]
 
 const SEED = 12_345
 
-/** Запас текстов заведомо больше длины забега. */
-const POOL: readonly TextEntry[] = Array.from({ length: BALANCE.runLength * 2 }, (_, i) => ({
-  id: `t${i}`,
-  order: i * 2 + 1,
-}))
+/** Сколько вариантов у каждого слота линии в тестовом запасе. */
+const VARIANTS = 3
+
+/** Запас: полная линия слотов, у каждого по несколько вариантов. */
+const POOL: readonly TextEntry[] = Array.from(
+  { length: BALANCE.runLength * VARIANTS },
+  (_, i) => ({ id: `t${i}`, slot: (i % BALANCE.runLength) + 1 }),
+)
+
+function slotOf(id: string): number {
+  const entry = POOL.find((item) => item.id === id)
+  if (!entry) throw new Error(`нет текста ${id}`)
+  return entry.slot
+}
 
 function newRun(): RunState {
   return startRun(SEED, 40, POOL)
@@ -93,9 +105,22 @@ describe('набор узлов', () => {
   })
 
   it('показывает выбранное по возрастанию номера журнала', () => {
-    const levels = pickLevels(SEED, POOL, BALANCE.runLength)
-    const orders = levels.map((id) => POOL.find((entry) => entry.id === id)!.order)
-    expect(orders).toEqual([...orders].sort((a, b) => a - b))
+    const slots = pickLevels(SEED, POOL, BALANCE.runLength).map(slotOf)
+    expect(slots).toEqual([...slots].sort((a, b) => a - b))
+  })
+
+  it('берёт из каждого слота линии ровно один вариант', () => {
+    // Иначе одно событие истории прозвучало бы дважды, а другое пропало.
+    const slots = pickLevels(SEED, POOL, BALANCE.runLength).map(slotOf)
+    expect(new Set(slots).size).toBe(slots.length)
+  })
+
+  it('на разных сидах берёт разные варианты одних и тех же слотов', () => {
+    // Это и есть реиграбельность: форма забега та же, слова другие.
+    const a = pickLevels(SEED, POOL, BALANCE.runLength)
+    const b = pickLevels(SEED + 1, POOL, BALANCE.runLength)
+    expect(a).not.toEqual(b)
+    expect(a.map(slotOf)).toEqual(b.map(slotOf))
   })
 
   it('повторяем по сиду', () => {
@@ -111,6 +136,11 @@ describe('набор узлов', () => {
     const run = startRun(SEED, 40, small)
     expect(run.totalLevels).toBe(3)
     expect(run.levels).toHaveLength(3)
+  })
+
+  it('обрывает слишком длинную линию с конца, а не с середины', () => {
+    const levels = pickLevels(SEED, POOL, 4)
+    expect(levels.map(slotOf)).toEqual([1, 2, 3, 4])
   })
 })
 
