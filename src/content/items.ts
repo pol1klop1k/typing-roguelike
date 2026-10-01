@@ -387,11 +387,11 @@ export const DEFAULT_ITEMS: readonly ItemSpec[] = [
     text: {
       ru: {
         name: 'autocomplete',
-        description: `Каждый верно набранный символ с шансом ${Math.round(BALANCE.autocompleteChance * 100)}% дописывает слово до конца. Дописанные буквы приносят символы, как будто их напечатали идеально, но в скорость и точность не идут.`,
+        description: `Каждый верно набранный символ с шансом ${Math.round(BALANCE.autocompleteChance * 100)}% дописывает слово до конца. Пока слово печатается само, время уровня стоит, а твои нажатия не считаются. Дописанные буквы приносят символы, как будто их напечатали идеально, но в скорость и точность не идут.`,
       },
       en: {
         name: 'autocomplete',
-        description: `Every correct keystroke has a ${Math.round(BALANCE.autocompleteChance * 100)}% chance to finish the word for you. The filled letters pay chips as if typed perfectly, but they do not count towards speed or accuracy.`,
+        description: `Every correct keystroke has a ${Math.round(BALANCE.autocompleteChance * 100)}% chance to finish the word for you. While the word types itself the level clock is stopped and your keystrokes do not count. The filled letters pay chips as if typed perfectly, but they do not count towards speed or accuracy.`,
       },
     },
     params: [

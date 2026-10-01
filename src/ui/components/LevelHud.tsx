@@ -41,7 +41,16 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
   const urgent = snapshot.timeLeftMs <= BALANCE.lowTimeWarningMs
   const critical = snapshot.timeLeftMs <= 5_000
 
-  const timeColor = critical ? 'text-term-red' : urgent ? 'text-term-amber' : 'text-term'
+  // Часы стоят, пока ядро печатает слово за игрока. Замерший таймер легко не
+  // заметить, когда смотришь в текст, поэтому он ещё и раскаляется добела.
+  const frozen = snapshot.frozen
+  const timeColor = frozen
+    ? 'text-term-hot'
+    : critical
+      ? 'text-term-red'
+      : urgent
+        ? 'text-term-amber'
+        : 'text-term'
   const timeRatio = snapshot.totalTimeMs === 0 ? 0 : snapshot.timeLeftMs / snapshot.totalTimeMs
   const scoreRatio = Math.min(1, snapshot.score / snapshot.targetScore)
 
@@ -64,9 +73,17 @@ export function LevelHud({ snapshot, language }: LevelHudProps) {
         }
       >
         <motion.span
-          className={`glow text-3xl tabular-nums ${timeColor}`}
-          animate={critical ? { opacity: [1, 0.45, 1] } : { opacity: 1 }}
-          transition={critical ? { duration: 0.6, repeat: Infinity } : { duration: 0.2 }}
+          className={`${frozen ? 'glow-hot' : 'glow'} text-3xl tabular-nums ${timeColor}`}
+          animate={
+            frozen
+              ? { opacity: 1, scale: 1.08 }
+              : critical
+                ? { opacity: [1, 0.45, 1], scale: 1 }
+                : { opacity: 1, scale: 1 }
+          }
+          transition={
+            critical && !frozen ? { duration: 0.6, repeat: Infinity } : { duration: 0.12 }
+          }
         >
           {seconds.toFixed(1)}
         </motion.span>

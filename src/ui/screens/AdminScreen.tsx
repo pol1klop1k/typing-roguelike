@@ -9,6 +9,7 @@
  * соседние строки разом, работает против задачи.
  */
 import { useMemo, useState } from 'react'
+import { BOSSES } from '../../content/bosses'
 import { ITEMS, RARITY_TEXT, type ItemParam } from '../../content/items'
 import type { Tuning } from '../../content/tuning'
 import { BALANCE, type BalanceNumberKey } from '../../core/balance'
@@ -285,6 +286,35 @@ export function AdminScreen() {
               </Row>
             </tbody>
           </table>
+        </section>
+
+        <section>
+          <SectionTitle>Боссы</SectionTitle>
+          {BOSSES.map((boss) => (
+            <div key={boss.id} className="mb-4 flex flex-wrap items-end gap-4">
+              <Field label="Босс">
+                <span className="text-term-bright">{boss.id}</span>
+              </Field>
+              <Field label="Узел">
+                <span className="text-term-bright">{boss.step + 1}</span>
+              </Field>
+              {(boss.params ?? []).map((param) => (
+                <Field key={param.key} label={param.text.ru}>
+                  <NumberInput
+                    value={numbers[param.key] ?? 0}
+                    min={param.min}
+                    step={param.step}
+                    onChange={(value) => setNumbers((prev) => ({ ...prev, [param.key]: value }))}
+                  />
+                </Field>
+              ))}
+            </div>
+          ))}
+          <p className="text-xs text-term-dim">
+            Интервал и длительность гашения равны между собой не случайно: так на экране всегда
+            ровно одно погашенное слово. Разведешь числа - появятся секунды, когда текст виден
+            целиком.
+          </p>
         </section>
 
         <section>
@@ -632,6 +662,7 @@ function readNumbers(): Record<string, number> {
   const keys: BalanceNumberKey[] = [
     ...DIFFICULTY_PARAMS.map((param) => param.key),
     ...ECONOMY_PARAMS.map((param) => param.key),
+    ...BOSSES.flatMap((boss) => boss.params?.map((param) => param.key) ?? []),
     ...ITEMS.flatMap((item) => item.params?.map((param) => param.key) ?? []),
   ]
   return Object.fromEntries(keys.map((key) => [key, BALANCE[key] as number]))

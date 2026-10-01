@@ -1,6 +1,6 @@
 import { motion } from 'motion/react'
 import { memo, useMemo } from 'react'
-import { pageIndexAt, paginateWords } from '../../core/typing'
+import { pageIndexAt, pageStartWord, paginateWords } from '../../core/typing'
 import type { WordSegment } from '../../core/typing'
 
 interface TypingTextProps {
@@ -10,6 +10,22 @@ interface TypingTextProps {
   hasError: boolean
   /** Промах случился внутри окна безопасности и ничего не стоил. */
   safeWindow: boolean
+  /**
+   * Индексы слов, с которых снято питание, через запятую.
+   *
+   * Строка, а не массив, намеренно: компонент лежит под memo, а новый массив
+   * на каждом кадре ломал бы сравнение пропсов и заставлял бы перерисовывать
+   * триста букв шестьдесят раз в секунду.
+   */
+  blackouts: string
+  /**
+   * Что ядро дописало за игрока: `поколение:от:до:мс`, пусто - ничего.
+   *
+   * Поколение нужно, чтобы анимация переигрывалась на каждом новом
+   * срабатывании: без него второй подряд дописанный диапазон переиспользовал
+   * бы те же узлы и ничего бы не проиграл.
+   */
+  autofill: string
 }
 
 /**
@@ -51,10 +67,19 @@ export const TypingText = memo(function TypingText({
   cursor,
   hasError,
   safeWindow,
+  blackouts,
+  autofill,
 }: TypingTextProps) {
   const pages = useMemo(() => paginateWords(words, PAGE_CHARS), [words])
   const index = pageIndexAt(pages, cursor)
   const page = pages[index] ?? []
+
+  const dark = useMemo(
+    () => new Set(blackouts.split(',').filter(Boolean).map(Number)),
+    [blackouts],
+  )
+
+  const filled = useMemo(() => parseAutofill(autofill), [autofill])
 
   return (
     <motion.div
@@ -66,15 +91,40 @@ export const TypingText = memo(function TypingText({
       animate={{ opacity: [0.06, 1, 0.3, 1], scaleY: [1.08, 1, 1.02, 1] }}
       transition={{ duration: 0.3, times: [0, 0.35, 0.62, 1], ease: 'linear' }}
     >
-      {page.map((word) => (
-        <span key={word.start} className="whitespace-pre">
-          {[...word.text].map((char, offset) => {
-            const charIndex = word.start + offset
-            const state = charState(charIndex, cursor, hasError, safeWindow)
-            return <Char key={charIndex} char={char} state={state} />
-          })}
-        </span>
-      ))}
+      {page.map((word, offsetOnPage) => {
+        // Индекс слова в тексте целиком, а не на странице: ядро нумерует
+        // слова сквозным счётом, и страница этого счёта не сдвигает.
+        const wordIndex = pageStartWord(pages, index) + offsetOnPage
+        const blackout = dark.has(wordIndex)
+
+        return (
+          <span key={word.start} className="whitespace-pre">
+            {[...word.text].map((char, offset) => {
+              const charIndex = word.start + offset
+              const state = charState(charIndex, cursor, hasError, safeWindow)
+              const self = filled !== null && charIndex >= filled.from && charIndex < filled.to
+
+              return (
+                <Char
+                  // Ключ с поколением только у дописанных букв: смена ключа
+                  // пересоздаёт узел, и анимация играет с начала. У остальных
+                  // букв ключ постоянный, иначе страница пересобиралась бы
+                  // целиком на каждом срабатывании.
+                  key={self ? `${charIndex}-${filled.gen}` : charIndex}
+                  char={char}
+                  state={state}
+                  // Гасится только то, до чего игрок ещё не дошёл. Напечатанное
+                  // остаётся видимым: буква, которую он угадал, зажигается.
+                  blackout={blackout && charIndex >= cursor}
+                  {...(self
+                    ? { selfTypedDelayMs: (charIndex - filled.from) * filled.stepMs }
+                    : {})}
+                />
+              )
+            })}
+          </span>
+        )
+      })}
     </motion.div>
   )
 })
@@ -103,14 +153,68 @@ const CLASSES: Record<CharState, string> = {
   safe: 'bg-term-amber text-term-bg',
 }
 
-function Char({ char, state }: { char: string; state: CharState }) {
+/**
+ * Разбирает строку дописывания. Строка, а не объект, потому что компонент
+ * лежит под memo: новый объект на каждом кадре ломал бы сравнение пропсов.
+ */
+function parseAutofill(
+  value: string,
+): { gen: number; from: number; to: number; stepMs: number } | null {
+  if (!value) return null
+
+  const [gen, from, to, freezeMs] = value.split(':').map(Number)
+  if (gen === undefined || from === undefined || to === undefined || freezeMs === undefined) {
+    return null
+  }
+  if (to <= from) return null
+
+  // Шаг равен длине остановки, поделённой на число букв: слово обязано
+  // допечататься ровно к тому моменту, когда часы пойдут снова.
+  return { gen, from, to, stepMs: freezeMs / (to - from) }
+}
+
+function Char({
+  char,
+  state,
+  blackout,
+  selfTypedDelayMs,
+}: {
+  char: string
+  state: CharState
+  blackout: boolean
+  selfTypedDelayMs?: number
+}) {
   // Пробел под курсором иначе не виден — подчёркиваем его нижним подчёркиванием.
   const visible = char === ' ' && state !== 'typed' && state !== 'pending' ? '_' : char
   // Метка нужна интерфейсу, чтобы привязать вылетающие очки к позиции курсора.
   const isCursor = state !== 'typed' && state !== 'pending'
+
+  const self = selfTypedDelayMs !== undefined
+
   return (
-    <span className={CLASSES[state]} data-cursor={isCursor ? '' : undefined}>
+    <span
+      className={`${charClass(state, blackout)}${self ? ' autofilled' : ''}`}
+      data-cursor={isCursor ? '' : undefined}
+      {...(self ? { style: { animationDelay: `${selfTypedDelayMs}ms` } } : {})}
+    >
       {visible}
     </span>
   )
+}
+
+/**
+ * Погашенная буква и её исключения.
+ *
+ * Курсор под гашением остаётся виден, а вот его буква - нет. Без этого игрок
+ * теряет не только слово, но и место в тексте, и уже не понимает, сколько
+ * ему осталось: гасится текст, а не интерфейс.
+ *
+ * Промах ПРОЯВЛЯЕТ букву целиком. Это и есть выход из положения: не угадал -
+ * плати ошибкой и смотри, что там было написано.
+ */
+function charClass(state: CharState, blackout: boolean): string {
+  if (!blackout) return CLASSES[state]
+  if (state === 'error' || state === 'safe') return CLASSES[state]
+  if (state === 'current') return 'bg-term text-transparent'
+  return `${CLASSES[state]} powerdown`
 }

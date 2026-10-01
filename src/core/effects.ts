@@ -69,6 +69,15 @@ interface BaseContext {
    * иначе подарок, добравший цель, заметили бы только на следующей букве.
    */
   bonusScore: number
+  /**
+   * Слова, с которых надо снять питание: индекс слова и на сколько.
+   *
+   * Поле есть у каждого хука по той же причине, что и bonusScore: гасить
+   * слово может и тик босса, и ошибка, и завершённое слово. Ядро забирает
+   * заявки сразу после прогона хуков и помнит их само - срок жизни погашения
+   * обязан идти по часам УРОВНЯ, а не по таймеру интерфейса.
+   */
+  blackout: { readonly wordIndex: number; readonly durationMs: number }[]
 }
 
 /**
@@ -210,7 +219,7 @@ export interface HookContexts {
 /** Часть контекста, которую заполняет ядро. Остальное подставляет рантайм. */
 export type HookPayload<K extends HookName> = Omit<
   HookContexts[K],
-  'item' | 'rng' | 'bonusScore'
+  'item' | 'rng' | 'bonusScore' | 'blackout'
 > & { item?: ItemApi }
 
 /**
@@ -272,6 +281,7 @@ export class ModifierRuntime {
     // об этом в девяти местах вызова.
     ;(context as { rng: Rng }).rng = this.rng
     context.bonusScore = 0
+    context.blackout = []
 
     for (const slot of this.slots) {
       const handler = slot.modifier.hooks[hook]

@@ -88,6 +88,7 @@ describe('начисление очков', () => {
       kind: 'correct',
       char: ' ',
       wordScored: { word: 'ab ', wordIndex: 0, chips: 30, mult: 1, gained: 30 },
+      autofill: null,
     })
   })
 })
@@ -432,6 +433,7 @@ describe('система эффектов', () => {
       kind: 'forgiven',
       char: 'a',
       wordScored: null,
+      autofill: null,
     })
     expect(session.snapshot.errors).toBe(0)
     expect(session.snapshot.safeWindow).toBe(false)
@@ -448,6 +450,7 @@ describe('система эффектов', () => {
       kind: 'correct',
       char: 'a',
       wordScored: null,
+      autofill: null,
     })
   })
 

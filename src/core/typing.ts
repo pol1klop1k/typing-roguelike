@@ -93,6 +93,21 @@ export function pageIndexAt(pages: readonly WordSegment[][], cursor: number): nu
 }
 
 /** Индекс слова, которому принадлежит символ под курсором. */
+/**
+ * Сквозной номер первого слова страницы.
+ *
+ * Нужен показу текста: ядро нумерует слова по всему тексту, а страница знает
+ * только свой кусок. Без перевода номеров гашение слова попадало бы не на то
+ * слово, стоило игроку перевернуть страницу.
+ */
+export function pageStartWord(pages: readonly WordSegment[][], pageIndex: number): number {
+  let count = 0
+  for (let index = 0; index < pageIndex && index < pages.length; index++) {
+    count += pages[index]!.length
+  }
+  return count
+}
+
 export function wordIndexAt(words: readonly WordSegment[], cursor: number): number {
   for (let i = 0; i < words.length; i++) {
     const word = words[i]!

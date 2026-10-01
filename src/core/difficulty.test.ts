@@ -11,6 +11,7 @@ import {
   requiredWpmWith,
   rewardAt,
   wallStep,
+  wpmFactorWith,
 } from './difficulty'
 
 const TOTAL = BALANCE.runLength
@@ -84,9 +85,17 @@ describe('кривая требуемой скорости', () => {
   it('ставит стену на один и тот же узел любому игроку', () => {
     // Смысл доли: медленный и быстрый упираются в собственный предел вместе.
     const wall = wallStep(TOTAL)
+
+    // Проверяется ДОЛЯ, а не округлённая скорость. На доле 0.993 медленный
+    // пресет округляется ровно в свою же скорость, и строгое «меньше» на
+    // целых числах падало от наладки, а не от сломанной кривой. Стена живёт
+    // в доле - там её и надо проверять.
+    expect(wpmFactorWith(BALANCE, wall, TOTAL)).toBeGreaterThanOrEqual(1)
+    if (wall > 0) expect(wpmFactorWith(BALANCE, wall - 1, TOTAL)).toBeLessThan(1)
+
     for (const preset of BALANCE.presets) {
       expect(requiredWpm(preset, wall, TOTAL)).toBeGreaterThanOrEqual(preset)
-      if (wall > 0) expect(requiredWpm(preset, wall - 1, TOTAL)).toBeLessThan(preset)
+      if (wall > 0) expect(requiredWpm(preset, wall - 1, TOTAL)).toBeLessThanOrEqual(preset)
     }
   })
 

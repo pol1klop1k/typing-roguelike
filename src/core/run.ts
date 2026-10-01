@@ -50,6 +50,8 @@ export interface TextEntry {
   readonly id: string
   /** Место в истории. У одного слота несколько взаимозаменяемых текстов. */
   readonly slot: number
+  /** Забег всегда берёт именно его. Так закреплена запись босса. */
+  readonly pinned?: boolean
 }
 
 /** Предмет в том виде, в каком забег его знает: id, цена, редкость. */
@@ -91,7 +93,14 @@ export function pickLevels(seed: number, pool: readonly TextEntry[], count: numb
   return [...bySlot.entries()]
     .sort(([a], [b]) => a - b)
     .slice(0, count)
-    .map(([, variants]) => rng.pick(variants).id)
+    .map(([, variants]) => {
+      // Закреплённый вариант обходит жребий: узел босса обязан быть про то,
+      // с чем игрок на нём воюет, а наугад нужный текст выпадал бы в одном
+      // забеге из шести. Если закреплённых почему-то два, берётся первый -
+      // лишь бы выбор остался однозначным.
+      const pinned = variants.find((variant) => variant.pinned)
+      return (pinned ?? rng.pick(variants)).id
+    })
 }
 
 export function startRun(seed: number, baseWpm: BaseWpm, pool: readonly TextEntry[]): RunState {

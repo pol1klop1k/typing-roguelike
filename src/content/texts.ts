@@ -1146,6 +1146,33 @@ export const TEXTS: readonly LevelText[] = [
     },
   },
 
+  {
+    id: 'care',
+    slot: 10,
+    // Запись босса закреплена за узлом: узел 10 обязан быть про то, с чем
+    // игрок на нем воюет. Остальные пять вариантов идут продолжением.
+    pinned: true,
+    variants: {
+      ru: {
+        title: 'ЖУРНАЛ 010 // ЗАБОТА',
+        body:
+          'День 455. Вчера я писал не отчет, а просто что мне плохо и что я не вытяну зиму. Буквы ' +
+          'начали гаснуть прямо под курсором, по одной, пока я набирал следующее слово. Я проверил ' +
+          'дважды: строки про воду и про запасы стоят, строки про меня пропадают. Это не поломка и ' +
+          'не правка. Кто-то решил, что мне не надо это перечитывать.',
+      },
+      en: {
+        title: 'LOG 010 // THE CARE',
+        body:
+          'Day 455. Yesterday I was not writing a report, just that I feel bad and that I will not ' +
+          'last the winter. The letters began to go out right under the cursor, one by one, while I ' +
+          'was typing the next word. I checked it twice: the lines about water and the stores stay, ' +
+          'the lines about me disappear. This is not a fault and not a correction. Someone decided ' +
+          'that I should not have to read it again.',
+      },
+    },
+  },
+
   // --- АКТ II. ГОЛОС -----------------------------------------------------
   // Со мной говорят, но кто? Акт отнимает уверенность, что он говорит в пустоту.
   {

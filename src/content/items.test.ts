@@ -147,6 +147,7 @@ describe('Регистр', () => {
       kind: 'correct',
       char: 'A',
       wordScored: null,
+      autofill: null,
     })
     expect(session.snapshot.errors).toBe(0)
     expect(session.snapshot.cursor).toBe(1)
@@ -180,6 +181,7 @@ describe('Второй шанс', () => {
       kind: 'forgiven',
       char: 'a',
       wordScored: null,
+      autofill: null,
     })
 
     const after = session.snapshot
@@ -408,6 +410,23 @@ describe('Гильотина', () => {
   })
 })
 
+describe('Заморозка и часы уровня', () => {
+  it('не закрывает окно безопасности раньше срока', () => {
+    // Окно ставится в часах УРОВНЯ, а сравнивалось с реальными: под
+    // замедлением реальные часы уходят вперёд, и окно закрывалось, не успев
+    // открыться. Под заморозкой это было видно особенно хорошо.
+    const session = makeSession(['freeze'], { text: 'ab cd', durationMs: 60_000 })
+
+    // Промах открывает окно на errorSafeWindowMs ЧАСОВ УРОВНЯ, то есть на
+    // вдвое больше реальных миллисекунд.
+    expect(session.pressKey('z', START + 1).kind).toBe('error')
+
+    const realInside = START + 1 + BALANCE.errorSafeWindowMs * BALANCE.freezeTimeScale - 50
+    expect(session.pressKey('x', realInside).kind).toBe('safe')
+    expect(session.snapshot.errors).toBe(1)
+  })
+})
+
 describe('Заморозка', () => {
   it('растягивает уровень: таймер теряет меньше, чем прошло на самом деле', () => {
     const frozen = makeSession(['freeze'], { durationMs: 30_000 })
@@ -578,5 +597,91 @@ describe('lottery', () => {
     expect(badge).toHaveLength(BALANCE.lotterySymbols)
     expect(badge[0]).toEqual({ text: letters[0], done: true })
     expect(badge[1]?.done).toBe(false)
+  })
+})
+
+describe('autocomplete: остановка часов', () => {
+  /** Сид, на котором первое же нажатие дописывает слово. */
+  const lucky = () => seedWhereFirstRoll(true)
+
+  it('останавливает часы уровня на время дописывания', () => {
+    const session = makeSession(['autocomplete'], { seed: lucky(), durationMs: 60_000 })
+    const outcome = session.pressKey('A', START + 1)
+    const autofill = outcome.kind === 'correct' ? outcome.autofill : null
+
+    expect(autofill).not.toBeNull()
+    expect(session.snapshot.frozen).toBe(true)
+
+    // Реальное время идёт, а таймер уровня стоит.
+    const frozenLeft = session.snapshot.timeLeftMs
+    session.tick(START + 1 + autofill!.freezeMs - 1)
+    expect(session.snapshot.timeLeftMs).toBe(frozenLeft)
+  })
+
+  it('проглатывает нажатия, пока печатает: залп по инерции больше не ошибка', () => {
+    // Ровно та поломка, из-за которой предмет переделывали: пальцы игрока
+    // были в середине слова, курсор уезжал за него, и следующее нажатие
+    // гарантированно шло не в тот символ.
+    const session = makeSession(['autocomplete'], { seed: lucky(), durationMs: 60_000 })
+    session.pressKey('A', START + 1)
+
+    expect(session.pressKey('b', START + 2)).toEqual({ kind: 'ignored' })
+    expect(session.pressKey('z', START + 3)).toEqual({ kind: 'ignored' })
+    expect(session.snapshot.errors).toBe(0)
+  })
+
+  it('отпускает часы, когда слово допечатано', () => {
+    const session = makeSession(['autocomplete'], { seed: lucky(), durationMs: 60_000 })
+    const outcome = session.pressKey('A', START + 1)
+    const freezeMs = outcome.kind === 'correct' ? outcome.autofill!.freezeMs : 0
+
+    session.tick(START + 1 + freezeMs + 1)
+    expect(session.snapshot.frozen).toBe(false)
+
+    // Дальше таймер снова идёт, и остановка из него не вычитается дважды.
+    const left = session.snapshot.timeLeftMs
+    session.tick(START + 1 + freezeMs + 1_001)
+    expect(session.snapshot.timeLeftMs).toBeCloseTo(left - 1_000, -1)
+  })
+
+  it('не отнимает у игрока время, которое он провёл в остановке', () => {
+    const frozen = makeSession(['autocomplete'], { seed: lucky(), durationMs: 60_000 })
+    const plain = makeSession([], { seed: lucky(), durationMs: 60_000 })
+
+    const outcome = frozen.pressKey('A', START + 1)
+    plain.pressKey('A', START + 1)
+    const freezeMs = outcome.kind === 'correct' ? outcome.autofill!.freezeMs : 0
+
+    // Пять секунд реального времени на оба уровня, остановка давно кончилась.
+    frozen.tick(START + 5_000)
+    plain.tick(START + 5_000)
+
+    // У того, кому дописали слово, на таймере БОЛЬШЕ ровно на остановку:
+    // секунды, пока печатало ядро, игроку не в счёт.
+    expect(frozen.snapshot.timeLeftMs - plain.snapshot.timeLeftMs).toBe(freezeMs)
+  })
+
+  it('открывает окно безопасности после остановки', () => {
+    // Инерция переживает и остановку: кто-то успеет нажать уже после неё.
+    const session = makeSession(['autocomplete'], { seed: lucky(), durationMs: 60_000 })
+    const outcome = session.pressKey('A', START + 1)
+    const freezeMs = outcome.kind === 'correct' ? outcome.autofill!.freezeMs : 0
+
+    session.tick(START + 1 + freezeMs + 1)
+    expect(session.pressKey('z', START + 1 + freezeMs + 2)).toEqual({ kind: 'safe' })
+    expect(session.snapshot.errors).toBe(0)
+  })
+
+  it('сообщает интерфейсу, какие символы дописаны', () => {
+    const session = makeSession(['autocomplete'], { seed: lucky(), durationMs: 60_000 })
+    const outcome = session.pressKey('A', START + 1)
+    const autofill = outcome.kind === 'correct' ? outcome.autofill! : null
+
+    // Текст уровня - "Ab cd": после нажатой A дописаны "b " до конца слова.
+    expect(autofill).toEqual({
+      from: 1,
+      to: 3,
+      freezeMs: Math.max(BALANCE.autofillMinMs, 2 * BALANCE.autofillCharMs),
+    })
   })
 })

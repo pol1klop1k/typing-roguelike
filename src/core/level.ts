@@ -40,8 +40,30 @@ export interface LevelConfig {
    * детерминирован - просто одинаков от запуска к запуску.
    */
   readonly seed?: number | string
-  /** Предметы, эффекты босса и модификаторы уровня. В прототипе пусто. */
+  /** Предметы игрока в порядке инвентаря. */
   readonly modifiers?: readonly Modifier[]
+  /**
+   * Босс узла. Отдельно от предметов по двум причинам: его статус не должен
+   * попадать в панель предметов и сдвигать там индексы, а хуки его обязаны
+   * идти ПОСЛЕ предметов - босс действует на то, что получилось у игрока.
+   */
+  readonly boss?: Modifier
+}
+
+/**
+ * Ядро дописало слово само: какие символы и на сколько встали часы.
+ *
+ * Едет в исходе нажатия, а не в срезе: это одноразовое событие, его надо
+ * показать один раз, а не держать в состоянии. Так же устроено слово,
+ * превратившееся в очки.
+ */
+export interface AutofillEvent {
+  /** Первый дописанный символ. */
+  readonly from: number
+  /** Индекс за последним дописанным символом. */
+  readonly to: number
+  /** На сколько реального времени встали часы уровня. */
+  readonly freezeMs: number
 }
 
 /** Слово превратилось в очки — интерфейсу есть что анимировать. */
@@ -55,13 +77,23 @@ export interface WordScored {
 
 export type KeyOutcome =
   | { readonly kind: 'ignored' }
-  | { readonly kind: 'correct'; readonly char: string; readonly wordScored: WordScored | null }
+  | {
+      readonly kind: 'correct'
+      readonly char: string
+      readonly wordScored: WordScored | null
+      readonly autofill: AutofillEvent | null
+    }
   /**
    * Промах, который предмет превратил в верный символ. Игрок не потерял
    * ничего. Какой именно предмет сработал, интерфейс видит по статусам
    * в срезе уровня — отдельное поле здесь было бы вторым источником правды.
    */
-  | { readonly kind: 'forgiven'; readonly char: string; readonly wordScored: WordScored | null }
+  | {
+      readonly kind: 'forgiven'
+      readonly char: string
+      readonly wordScored: WordScored | null
+      readonly autofill: AutofillEvent | null
+    }
   | { readonly kind: 'error'; readonly penaltyMs: number }
   /** Промах внутри окна после ошибки: помечен, но ничего не стоил. */
   | { readonly kind: 'safe' }
@@ -79,6 +111,15 @@ export class LevelSession {
   readonly requiredWpm: number
 
   private readonly runtime: ModifierRuntime
+  /** Сколько первых слотов рантайма - предметы игрока. Остальное босс. */
+  private readonly itemCount: number
+  /**
+   * Погашенные слова: индекс слова -> час уровня, до которого оно темно.
+   *
+   * Живёт в ядре, а не в памяти босса, по той же причине, по которой там живёт
+   * откат предмета: срок обязан видеть интерфейс, а идти - по часам уровня.
+   */
+  private readonly blackouts = new Map<number, number>()
 
   private phase: LevelSnapshot['phase'] = 'idle'
   private cursor = 0
@@ -119,6 +160,21 @@ export class LevelSession {
   private realStartedAt = 0
   private realEndedAt: number | null = null
 
+  /**
+   * Остановка часов уровня.
+   *
+   * Храним момент по РЕАЛЬНЫМ часам и длину: пока остановка идёт, часы уровня
+   * не двигаются вовсе, а значит по ним нельзя отмерить и её собственный
+   * конец. Накопленное уходит в frozenTotalMs и вычитается из реального
+   * времени при каждом переводе часов.
+   */
+  private freezeStartedAtReal: number | null = null
+  private freezeMs = 0
+  private frozenTotalMs = 0
+
+  /** Что ядро дописало последним нажатием. Читается в исходе и сбрасывается. */
+  private lastAutofill: AutofillEvent | null = null
+
   /** Начало текущего слова по часам уровня. null - слово ещё не начато. */
   private wordStartedAt: number | null = null
 
@@ -129,7 +185,13 @@ export class LevelSession {
     this.durationMs = config.durationMs
     this.reward = config.reward
     this.requiredWpm = config.requiredWpm ?? 0
-    this.runtime = new ModifierRuntime(config.modifiers ?? [], createRng(config.seed ?? 0))
+
+    const items = config.modifiers ?? []
+    this.itemCount = items.length
+    this.runtime = new ModifierRuntime(
+      config.boss ? [...items, config.boss] : items,
+      createRng(config.seed ?? 0),
+    )
   }
 
   /**
@@ -141,7 +203,10 @@ export class LevelSession {
    */
   private levelTime(realNow: number): number {
     if (this.scaleSince === null) return realNow
-    return this.scaleSince + (realNow - this.scaleSince) / this.timeScale
+    // Замороженные миллисекунды вычитаются ДО замедления: во время остановки
+    // часы уровня не идут ни быстро, ни медленно - они стоят.
+    const running = realNow - this.scaleSince - this.frozenMsAt(realNow)
+    return this.scaleSince + running / this.timeScale
   }
 
   /**
@@ -158,6 +223,13 @@ export class LevelSession {
     if (context.bonusScore > 0) {
       this.score += context.bonusScore
       if (this.score >= this.targetScore) this.finish('won', null)
+    }
+
+    for (const request of context.blackout) {
+      if (request.durationMs <= 0) continue
+      // Повторная заявка на то же слово продлевает гашение, а не копится:
+      // двух разных сроков у одного слова быть не может.
+      this.blackouts.set(request.wordIndex, now + request.durationMs)
     }
 
     return context
@@ -184,9 +256,54 @@ export class LevelSession {
     this.timeScale = started.timeScale > 0 ? started.timeScale : 1
   }
 
+  /**
+   * Сколько реального времени уже проглочено остановками к моменту realNow.
+   * Текущая, ещё идущая остановка считается частично.
+   */
+  private frozenMsAt(realNow: number): number {
+    if (this.freezeStartedAtReal === null) return this.frozenTotalMs
+    const spent = Math.max(0, Math.min(this.freezeMs, realNow - this.freezeStartedAtReal))
+    return this.frozenTotalMs + spent
+  }
+
+  /**
+   * Закрывает остановку, если её время по реальным часам вышло.
+   *
+   * Вызывается на входе каждого публичного метода, до перевода часов: иначе
+   * истёкшая остановка продолжала бы вычитаться как идущая.
+   */
+  private settleFreeze(realNow: number): void {
+    if (this.freezeStartedAtReal === null) return
+    if (realNow - this.freezeStartedAtReal < this.freezeMs) return
+
+    this.frozenTotalMs += this.freezeMs
+    this.freezeStartedAtReal = null
+    this.freezeMs = 0
+  }
+
+  /** Часы уровня стоят прямо сейчас. */
+  private get frozen(): boolean {
+    return this.freezeStartedAtReal !== null
+  }
+
+  /** Останавливает часы уровня на realMs реального времени. */
+  private freeze(realMs: number): void {
+    if (realMs <= 0) return
+    // Вторая заявка во время остановки продлевает её, а не заводит вторую:
+    // двух одновременно идущих остановок быть не может.
+    if (this.freezeStartedAtReal !== null) {
+      this.freezeMs += realMs
+      return
+    }
+
+    this.freezeStartedAtReal = this.realNow
+    this.freezeMs = realMs
+  }
+
   /** Продвигает часы. Вызывается каждый кадр и не считает ничего, кроме времени. */
   tick(now: number): void {
     this.realNow = now
+    this.settleFreeze(now)
     this.now = this.levelTime(now)
 
     if (this.phase === 'countdown') {
@@ -209,14 +326,29 @@ export class LevelSession {
     })
     if (context.addTimeMs !== 0) this.deadlineAt += context.addTimeMs
 
+    // Истёкшие гашения убираются по часам уровня, здесь же, где идёт время.
+    // Срез их только фильтрует: он читается из хуков по многу раз за кадр и
+    // менять состояние не имеет права.
+    for (const [wordIndex, until] of this.blackouts) {
+      if (this.now >= until) this.blackouts.delete(wordIndex)
+    }
+
     if (this.now >= this.deadlineAt) this.finish('lost', 'time')
   }
 
   /** Обрабатывает нажатие. `key` — это KeyboardEvent.key, то есть уже с учётом раскладки. */
   pressKey(key: string, now: number): KeyOutcome {
     this.realNow = now
+    this.settleFreeze(now)
     this.now = this.levelTime(now)
+    this.lastAutofill = null
+
     if (this.phase !== 'running') return { kind: 'ignored' }
+    // Часы стоят, пока ядро печатает слово за игрока. Нажатия в это время
+    // проглатываются без последствий - в этом и смысл остановки: залп по
+    // инерции, из-за которого предмет сам себе устраивал ошибку, больше
+    // никуда не попадает.
+    if (this.frozen) return { kind: 'ignored' }
     if (!isTypableKey(key)) return { kind: 'ignored' }
 
     const expected = this.text[this.cursor]
@@ -225,16 +357,16 @@ export class LevelSession {
     // Что считается верным вводом, решают предметы: «Регистр» разрешает
     // писать заглавные строчными. Проверка стоит первой, потому что она
     // определяет само понятие ошибки.
-    const check = this.runHook('onKeyCheck', now, {
+    const check = this.runHook('onKeyCheck', this.now, {
       snapshot: this.snapshot,
-      now,
+      now: this.now,
       key,
       expected,
       accepted: key === expected,
     })
     if (check.accepted) {
       const wordScored = this.acceptChar(expected, key)
-      return { kind: 'correct', char: expected, wordScored }
+      return { kind: 'correct', char: expected, wordScored, autofill: this.lastAutofill }
     }
 
     // Буква чужого алфавита почти наверняка значит не ту раскладку, а не ошибку.
@@ -247,7 +379,12 @@ export class LevelSession {
 
     // Инерция: осознав промах, человек успевает добить ещё символ-другой
     // по привычке. Эти нажатия помечаются, но не стоят ничего.
-    if (now < this.safeWindowUntil) {
+    //
+    // Сравнение по часам УРОВНЯ, и это не придирка. Окно ставится в часах
+    // уровня (rejectChar), а сравнивалось раньше с реальными: под
+    // замедлением времени реальные часы уходят вперёд, и окно закрывалось,
+    // не успев открыться. Остановка часов ломала его совсем.
+    if (this.now < this.safeWindowUntil) {
       this.wrongKey = key
       return { kind: 'safe' }
     }
@@ -258,9 +395,9 @@ export class LevelSession {
 
     // Промах настоящий. Он пережил окно безопасности и защиту от долбления,
     // поэтому предмет вроде «Второго шанса» тратится только на него.
-    const failure = this.runHook('onCharError', now, {
+    const failure = this.runHook('onCharError', this.now, {
       snapshot: this.snapshot,
-      now,
+      now: this.now,
       key,
       expected,
       forgiven: false,
@@ -268,7 +405,7 @@ export class LevelSession {
 
     if (failure.forgiven) {
       const wordScored = this.acceptChar(expected, key)
-      return { kind: 'forgiven', char: expected, wordScored }
+      return { kind: 'forgiven', char: expected, wordScored, autofill: this.lastAutofill }
     }
 
     return this.rejectChar(key)
@@ -342,11 +479,22 @@ export class LevelSession {
    */
   private fillWord(word: WordSegment): WordScored | null {
     let scored: WordScored | null = null
+    const from = this.cursor
 
     while (this.cursor < word.end && this.phase === 'running') {
       const char = this.text[this.cursor]
       if (char === undefined) break
       scored = this.acceptChar(char, char, true) ?? scored
+    }
+
+    const filled = this.cursor - from
+    if (filled > 0) {
+      const freezeMs = Math.max(BALANCE.autofillMinMs, filled * BALANCE.autofillCharMs)
+      this.freeze(freezeMs)
+      // Инерция переживает и остановку: кто-то успеет нажать уже после неё.
+      // Первый такой промах не стоит ничего - то же окно, что после ошибки.
+      this.safeWindowUntil = this.now + BALANCE.errorSafeWindowMs
+      this.lastAutofill = { from, to: this.cursor, freezeMs }
     }
 
     return scored
@@ -451,6 +599,12 @@ export class LevelSession {
   get snapshot(): LevelSnapshot {
     const timeLeftMs = this.timeLeftMs
     const payout = levelPayout(this.reward, timeLeftMs)
+    const statuses = this.runtime.statuses(this.now)
+
+    const blackouts: number[] = []
+    for (const [wordIndex, until] of this.blackouts) {
+      if (this.now < until) blackouts.push(wordIndex)
+    }
 
     return {
       phase: this.phase,
@@ -463,6 +617,9 @@ export class LevelSession {
       combo: this.combo,
       maxCombo: this.maxCombo,
       correctChars: this.correctChars,
+      wordIndex: this.wordIndex,
+      wordCount: this.words.length,
+      blackouts,
       timeLeftMs,
       totalTimeMs: this.durationMs,
       elapsedMs: this.realElapsedMs,
@@ -472,9 +629,11 @@ export class LevelSession {
         this.phase === 'countdown' ? Math.max(0, this.countdownEndsAt - this.now) : 0,
       wrongKey: this.wrongKey,
       safeWindow: this.phase === 'running' && this.now < this.safeWindowUntil,
+      frozen: this.frozen,
       layoutMismatch: this.layoutMismatch,
       lossReason: this.lossReason,
-      items: this.runtime.statuses(this.now),
+      items: statuses.slice(0, this.itemCount),
+      boss: statuses[this.itemCount] ?? null,
       requiredWpm: this.requiredWpm,
     }
   }

@@ -6,6 +6,7 @@
  */
 import { create } from 'zustand'
 import { sfx } from '../audio/sfx'
+import { bossFor } from '../content/bosses'
 import { findItem, ITEMS, modifiersFor } from '../content/items'
 import { buildLevelText, findText, TEXTS } from '../content/texts'
 import { levelTextCharsAt, planLevel } from '../core/difficulty'
@@ -92,6 +93,7 @@ function createSession(run: RunState, language: Language): LevelSession | null {
   const minChars = levelTextCharsAt(run.baseWpm, run.levelIndex, run.totalLevels)
   const body = buildLevelText(text.id, language, minChars)
   const plan = planLevel(body, run.baseWpm, run.levelIndex, run.totalLevels)
+  const boss = bossFor(run.levelIndex)
 
   return new LevelSession({
     text: body,
@@ -103,6 +105,7 @@ function createSession(run: RunState, language: Language): LevelSession | null {
     // же забег обязан разыгрывать одно и то же, иначе ни повторов, ни отладки.
     seed: `${run.seed}:${run.levelIndex}`,
     modifiers: modifiersFor(run.items),
+    ...(boss ? { boss: boss.modifier } : {}),
   })
 }
 

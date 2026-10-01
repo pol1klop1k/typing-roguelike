@@ -4,6 +4,7 @@ import {
   isLayoutMismatch,
   isTypableKey,
   pageIndexAt,
+  pageStartWord,
   paginateWords,
   splitWords,
   wordIndexAt,
@@ -102,6 +103,20 @@ describe('страницы текста', () => {
 
   it('сохраняют все слова и их порядок', () => {
     expect(paginateWords(words, 10).flat()).toEqual(words)
+  })
+
+  it('переводят номер слова страницы в сквозной номер', () => {
+    // Показ текста гасит слова по номерам из ядра, а они сквозные. Ошибка
+    // здесь погасила бы не то слово сразу после смены страницы.
+    const pages = paginateWords(words, 10)
+    expect(pageStartWord(pages, 0)).toBe(0)
+    for (let index = 1; index < pages.length; index++) {
+      expect(pageStartWord(pages, index)).toBe(
+        pageStartWord(pages, index - 1) + pages[index - 1]!.length,
+      )
+    }
+    // За последней страницей - все слова текста.
+    expect(pageStartWord(pages, pages.length)).toBe(words.length)
   })
 
   it('не зависят от курсора: страница всегда одна и та же', () => {

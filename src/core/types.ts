@@ -71,6 +71,15 @@ export interface LevelText {
    * иначе соседние узлы перестанут сходиться.
    */
   readonly slot: number
+  /**
+   * Вариант закреплён за своим слотом: забег всегда берёт именно его, а
+   * остальные варианты идут продолжением.
+   *
+   * Так закреплена запись босса. Узел босса обязан быть про то, с чем игрок
+   * на нём воюет, а выбор наугад давал бы нужный текст в одном забеге из
+   * шести.
+   */
+  readonly pinned?: boolean
   readonly variants: Readonly<Record<Language, TextVariant>>
 }
 
@@ -120,6 +129,18 @@ export interface LevelSnapshot {
   readonly combo: number
   readonly maxCombo: number
   readonly correctChars: number
+  /** Слово, на котором стоит курсор, и сколько слов в тексте уровня. */
+  readonly wordIndex: number
+  readonly wordCount: number
+  /**
+   * Слова, с которых снято питание: индексы в тексте уровня.
+   *
+   * Только индексы, без сроков. Интерфейс не считает по ним анимацию: текст
+   * живёт под memo и перерисовывается от движения курсора, а не каждый кадр,
+   * поэтому гашение показано css-анимацией, которая запускается самим
+   * появлением класса. Сроки остаются в ядре и идут по часам уровня.
+   */
+  readonly blackouts: readonly number[]
   readonly timeLeftMs: number
   readonly totalTimeMs: number
   readonly elapsedMs: number
@@ -137,11 +158,24 @@ export interface LevelSnapshot {
   readonly wrongKey: string | null
   /** Идёт окно после ошибки: промахи сейчас ничего не стоят. */
   readonly safeWindow: boolean
+  /**
+   * Часы уровня стоят: ядро само печатает слово за игрока.
+   *
+   * Нажатия в это время проглатываются, таймер не идёт, откаты не тикают.
+   * Интерфейсу нужно, чтобы показать остановку: замерший таймер сам по себе
+   * игрок может и не заметить.
+   */
+  readonly frozen: boolean
   /** Игрок печатает не в той раскладке — показать подсказку. */
   readonly layoutMismatch: boolean
   readonly lossReason: LossReason | null
   /** Предметы игрока в порядке инвентаря: подсветка и откаты. */
   readonly items: readonly ItemStatus[]
+  /**
+   * Босс узла, если он есть. Отдельно от предметов, а не последним в их
+   * списке: иначе индексы в панели предметов разъехались бы с инвентарём.
+   */
+  readonly boss: ItemStatus | null
   /** Скорость, которой требует этот узел. */
   readonly requiredWpm: number
 }

@@ -109,6 +109,19 @@ describe('набор узлов', () => {
     expect(slots).toEqual([...slots].sort((a, b) => a - b))
   })
 
+  it('всегда берёт закреплённый вариант слота', () => {
+    // Так за узлом босса стоит именно его запись, а не случайная из слота.
+    const pinned: readonly TextEntry[] = POOL.map((entry) =>
+      entry.id === 't99' ? { ...entry, pinned: true } : entry,
+    )
+    const slot = POOL.find((entry) => entry.id === 't99')!.slot
+
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const levels = pickLevels(seed, pinned, BALANCE.runLength)
+      expect(levels[slot - 1]).toBe('t99')
+    }
+  })
+
   it('берёт из каждого слота линии ровно один вариант', () => {
     // Иначе одно событие истории прозвучало бы дважды, а другое пропало.
     const slots = pickLevels(SEED, POOL, BALANCE.runLength).map(slotOf)
