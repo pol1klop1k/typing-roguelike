@@ -88,6 +88,7 @@ describe('начисление очков', () => {
       kind: 'correct',
       char: ' ',
       wordScored: { word: 'ab ', wordIndex: 0, chips: 30, mult: 1, gained: 30 },
+      autofill: null,
     })
   })
 })
@@ -314,11 +315,13 @@ describe('итог уровня', () => {
 
   it('содержит метрики и награду за победу', () => {
     const session = makeSession({ targetScore: 30, reward: 7 })
-    // 3 верных знака за 60 секунд -> 3 зн/мин
+    // 3 верных знака за 60 секунд -> 3 зн/мин. Таймер к этому моменту давно
+    // на нуле, поэтому надбавки за запас времени нет: только база.
     typeText(session, 'ab ', START + 60_000)
     const result = session.result!
     expect(result.won).toBe(true)
     expect(result.reward).toBe(7)
+    expect(result.timeLeftMs).toBe(0)
     expect(result.correctChars).toBe(3)
     expect(result.accuracy).toBe(100)
     expect(result.cpm).toBe(3)
@@ -329,6 +332,37 @@ describe('итог уровня', () => {
     session.tick(START + 10_000)
     expect(session.result!.won).toBe(false)
     expect(session.result!.reward).toBe(0)
+    expect(session.result!.rewardBase).toBe(0)
+    expect(session.result!.rewardTimeBonus).toBe(0)
+  })
+
+  it('добавляет к награде надбавку за запас времени', () => {
+    const session = makeSession({ targetScore: 30, reward: 7 })
+    // Цель взята сразу, значит на таймере остался почти весь запас.
+    typeText(session, 'ab ')
+    const result = session.result!
+
+    const left = 10_000 - 3
+    const bonus = Math.min(
+      BALANCE.rewardTimeMax,
+      Math.floor(left / (BALANCE.rewardTimeSecPerCredit * 1_000)),
+    )
+
+    expect(result.timeLeftMs).toBe(left)
+    expect(result.rewardBase).toBe(7)
+    expect(result.rewardTimeBonus).toBe(bonus)
+    expect(result.reward).toBe(7 + bonus)
+    // Иначе тест перестал бы проверять надбавку, ничего не сообщив.
+    expect(bonus).toBeGreaterThan(0)
+  })
+
+  it('показывает в срезе награду, которая тает вместе с таймером', () => {
+    const session = makeSession({ reward: 3 })
+    expect(session.snapshot.rewardBase).toBe(3)
+    expect(session.snapshot.rewardTimeBonus).toBeGreaterThan(0)
+
+    session.tick(START + 10_000)
+    expect(session.snapshot.rewardTimeBonus).toBe(0)
   })
 
   it('считает точность по ошибкам', () => {
@@ -399,6 +433,7 @@ describe('система эффектов', () => {
       kind: 'forgiven',
       char: 'a',
       wordScored: null,
+      autofill: null,
     })
     expect(session.snapshot.errors).toBe(0)
     expect(session.snapshot.safeWindow).toBe(false)
@@ -415,6 +450,7 @@ describe('система эффектов', () => {
       kind: 'correct',
       char: 'a',
       wordScored: null,
+      autofill: null,
     })
   })
 

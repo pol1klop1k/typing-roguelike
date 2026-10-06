@@ -1,6 +1,7 @@
 import { motion } from 'motion/react'
 import { useEffect } from 'react'
 import { activeText, useGameStore } from '../../state/gameStore'
+import { CreditsMeter } from '../components/CreditsMeter'
 import { ItemBar } from '../components/ItemBar'
 import { TerminalButton } from '../components/TerminalButton'
 import { TerminalFrame } from '../components/TerminalFrame'
@@ -20,7 +21,8 @@ const LABELS = {
     time: 'Время',
     reward: 'Получено',
     credits: 'кредитов',
-    creditsTitle: 'Кредиты',
+    reserve: 'Запас времени',
+    reserveBonus: 'надбавка',
     log: 'Расшифровка записи',
     menu: 'В меню',
     cpm: 'зн/мин',
@@ -48,7 +50,8 @@ const LABELS = {
     time: 'Time',
     reward: 'Earned',
     credits: 'credits',
-    creditsTitle: 'Credits',
+    reserve: 'Time left',
+    reserveBonus: 'bonus',
     log: 'Recovered log',
     menu: 'Menu',
     cpm: 'cpm',
@@ -111,7 +114,15 @@ export function ResultsScreen() {
   return (
     <TerminalFrame
       title={`${labels.node} ${run.levelIndex + 1}/${run.totalLevels} // ${variant.title}`}
-      right={`${labels.creditsTitle}: ${run.credits}`}
+      // Счётчик начинает с суммы ДО узла и добирает награду на глазах:
+      // начисление должно быть событием, а не готовым числом в углу.
+      right={
+        <CreditsMeter
+          credits={run.credits}
+          countFrom={run.credits - result.reward}
+          language={language}
+        />
+      }
     >
       <ItemBar items={run.items} language={language} />
 
@@ -149,6 +160,14 @@ export function ResultsScreen() {
           <Stat label={labels.errors} value={String(result.errors)} danger={result.errors > 0} />
           <Stat label={labels.combo} value={String(result.maxCombo)} />
           <Stat label={labels.time} value={`${(result.elapsedMs / 1000).toFixed(1)}s`} />
+          {/* Запас времени стоит рядом с наградой не для красоты: это
+              единственное место, где игрок узнаёт, за что ему доплатили. */}
+          <Stat
+            label={labels.reserve}
+            value={`${(result.timeLeftMs / 1000).toFixed(1)}s`}
+            sub={result.rewardTimeBonus > 0 ? `${labels.reserveBonus} +${result.rewardTimeBonus}` : undefined}
+            accent={result.rewardTimeBonus > 0}
+          />
           <Stat
             label={labels.reward}
             value={`+${result.reward}`}
@@ -196,7 +215,7 @@ function Stat({
 }: {
   label: string
   value: string
-  sub?: string
+  sub?: string | undefined
   accent?: boolean
   danger?: boolean
 }) {

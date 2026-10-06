@@ -84,7 +84,7 @@ class Sfx {
     osc.stop(start + durationSec + 0.02)
   }
 
-  private click(gainValue: number, frequency: number): void {
+  private click(gainValue: number, frequency: number, delaySec = 0): void {
     const ctx = this.ensureContext()
     if (!ctx || !this.master || !this.noise || !this.enabled) return
 
@@ -100,7 +100,7 @@ class Sfx {
     gain.gain.value = gainValue
 
     source.connect(filter).connect(gain).connect(this.master)
-    source.start()
+    source.start(ctx.currentTime + delaySec)
   }
 
   /** Обычное нажатие клавиши. Должно быть почти незаметным. */
@@ -166,6 +166,33 @@ class Sfx {
     this.tone(880, 0.07, { wave: 'triangle', gain: 0.1 })
     this.tone(1_320, 0.12, { wave: 'triangle', gain: 0.09, delaySec: 0.05 })
     this.click(0.08, 4_000)
+  }
+
+  /**
+   * Ядро печатает слово за игрока, часы уровня стоят.
+   *
+   * Звук собран из трёх частей, и каждая отвечает за свою мысль:
+   * провал тона вниз - время встало; цепочка щелчков по букве - печатает не
+   * игрок, а машина; короткий подъём в конце - время пошло снова.
+   *
+   * Без звука остановка почти не читается: замерший таймер легко не заметить,
+   * когда смотришь в текст.
+   */
+  autofill(chars: number, freezeMs: number): void {
+    const freezeSec = freezeMs / 1000
+
+    // Время встало: питание просело, тон уехал вниз.
+    this.tone(540, 0.14, { wave: 'sine', gain: 0.1, slideTo: 120 })
+    this.click(0.1, 600)
+
+    // По щелчку на каждую дописанную букву, ровно на длину остановки.
+    const step = chars > 0 ? freezeSec / chars : 0
+    for (let index = 0; index < chars; index++) {
+      this.click(0.1, 2_200 + index * 60, index * step)
+    }
+
+    // Время пошло: короткий подъём ровно в момент отпускания часов.
+    this.tone(260, 0.1, { wave: 'triangle', gain: 0.09, delaySec: freezeSec, slideTo: 900 })
   }
 
   /** Откат предмета истёк: он снова готов. Тихая подсказка, не фанфара. */

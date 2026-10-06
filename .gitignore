@@ -3,3 +3,6 @@ dist
 *.tsbuildinfo
 .DS_Store
 *.local
+
+# Локальный шаг назад для наладки. Сама наладка (tuning.json) версионируется.
+src/content/tuning.backup.json

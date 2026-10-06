@@ -2,14 +2,23 @@ import { AnimatePresence, motion, useAnimationControls } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
 import { sfx } from '../../audio/sfx'
 import { BALANCE } from '../../core/balance'
-import type { WordScored } from '../../core/level'
+import type { AutofillEvent, WordScored } from '../../core/level'
 import { activeText, useGameStore } from '../../state/gameStore'
 import { multTier } from '../intensity'
+import { CreditsMeter } from '../components/CreditsMeter'
 import { ItemBar } from '../components/ItemBar'
 import { LevelHud } from '../components/LevelHud'
 import { ScorePopups, type ScorePopup } from '../components/ScorePopups'
 import { TerminalFrame } from '../components/TerminalFrame'
 import { TypingText } from '../components/TypingText'
+
+/**
+ * Сколько держать диапазон дописывания после того, как часы пошли.
+ *
+ * Последняя буква начинает проявляться ровно в момент отпускания часов, и ей
+ * нужно доиграть свою анимацию. Снимешь раньше - последняя буква мигнёт.
+ */
+const AUTOFILL_TAIL_MS = 500
 
 const LABELS = {
   ru: {
@@ -39,6 +48,9 @@ export function LevelScreen() {
 
   const shake = useAnimationControls()
   const [popups, setPopups] = useState<readonly ScorePopup[]>([])
+  /** Диапазон, который ядро дописало за игрока: `поколение:от:до:мс`. */
+  const [autofill, setAutofill] = useState('')
+  const autofillGen = useRef(0)
   const [flash, setFlash] = useState(false)
   const popupId = useRef(0)
   const textAreaRef = useRef<HTMLDivElement>(null)
@@ -106,14 +118,32 @@ export function LevelScreen() {
         }, 900)
       }
 
+      /**
+       * Ядро дописало слово само. Часы уровня на это время стоят, нажатия
+       * проглатываются, и игрок видит, как буквы печатаются одна за другой.
+       *
+       * Диапазон снимается после того, как анимация доиграла: иначе
+       * следующая перерисовка текста запустила бы её заново.
+       */
+      const showAutofill = (event: AutofillEvent) => {
+        const gen = ++autofillGen.current
+        sfx.autofill(event.to - event.from, event.freezeMs)
+        setAutofill(`${gen}:${event.from}:${event.to}:${event.freezeMs}`)
+        window.setTimeout(() => {
+          setAutofill((current) => (current.startsWith(`${gen}:`) ? '' : current))
+        }, event.freezeMs + AUTOFILL_TAIL_MS)
+      }
+
       if (outcome.kind === 'correct') {
         sfx.key()
+        if (outcome.autofill) showAutofill(outcome.autofill)
         if (outcome.wordScored) spawnPopup(outcome.wordScored)
       } else if (outcome.kind === 'forgiven') {
         // Предмет превратил промах в верную букву. Ни вспышки, ни тряски:
         // игрок не ошибся, он был прикрыт. Подсветку даёт сам предмет
         // в панели, звук объясняет, что сработало именно снаряжение.
         sfx.item()
+        if (outcome.autofill) showAutofill(outcome.autofill)
         if (outcome.wordScored) spawnPopup(outcome.wordScored)
       } else if (outcome.kind === 'error') {
         sfx.error()
@@ -173,7 +203,12 @@ export function LevelScreen() {
   return (
     <TerminalFrame
       title={`${run.levelIndex + 1}/${run.totalLevels} ${variant.title}`}
-      right={labels.abort}
+      right={
+        <span className="flex items-baseline gap-4">
+          <CreditsMeter credits={run.credits} language={language} />
+          <span className="hidden sm:inline">{labels.abort}</span>
+        </span>
+      }
     >
       <motion.div animate={shake} className="flex min-h-0 flex-1 flex-col">
         <LevelHud snapshot={snapshot} language={language} />
@@ -190,6 +225,11 @@ export function LevelScreen() {
             cursor={snapshot.cursor}
             hasError={snapshot.wrongKey !== null}
             safeWindow={snapshot.safeWindow}
+            // Строкой, а не массивом: текст лежит под memo, и новый массив
+            // на каждом кадре перерисовывал бы триста букв шестьдесят раз
+            // в секунду.
+            blackouts={snapshot.blackouts.join(',')}
+            autofill={autofill}
           />
 
           <AnimatePresence>

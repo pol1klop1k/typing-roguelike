@@ -4,6 +4,7 @@ import {
   computeAccuracy,
   computeCpm,
   computeWpm,
+  levelPayout,
   nextMult,
   scoreWord,
   timePenaltyMs,
@@ -61,5 +62,29 @@ describe('computeAccuracy', () => {
 
   it('на пустом вводе не падает и даёт сто процентов', () => {
     expect(computeAccuracy(0, 0)).toBe(100)
+  })
+})
+
+describe('levelPayout', () => {
+  const perCredit = BALANCE.rewardTimeSecPerCredit * 1_000
+
+  it('без запаса времени платит только базу', () => {
+    expect(levelPayout(3, 0)).toEqual({ base: 3, timeBonus: 0, total: 3 })
+  })
+
+  it('не платит за неполный шаг', () => {
+    expect(levelPayout(3, perCredit - 1).timeBonus).toBe(0)
+    expect(levelPayout(3, perCredit).timeBonus).toBe(1)
+    expect(levelPayout(3, perCredit * 2 + 1).timeBonus).toBe(2)
+  })
+
+  it('упирается в потолок, сколько бы времени ни осталось', () => {
+    const huge = levelPayout(3, perCredit * 1_000)
+    expect(huge.timeBonus).toBe(BALANCE.rewardTimeMax)
+    expect(huge.total).toBe(3 + BALANCE.rewardTimeMax)
+  })
+
+  it('не уходит в минус и не ломается на отрицательном остатке', () => {
+    expect(levelPayout(3, -5_000)).toEqual({ base: 3, timeBonus: 0, total: 3 })
   })
 })

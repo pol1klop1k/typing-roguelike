@@ -18,11 +18,19 @@
  * на одном и том же узле, какую бы скорость игрок ни назвал. Дальше забег
  * выигрывается снаряжением, а не пальцами.
  *
- * Второй принцип: цель задаётся ОБЪЁМОМ РАБОТЫ, а не долей текста.
- * Фрагменты лора различаются по длине втрое, и «напечатай половину»
- * означало бы уровень на пятнадцать секунд для одного текста и на полторы
- * минуты для другого. Объём работы делает длительность узла предсказуемой,
- * а разницу между узлами создаёт только скорость.
+ * Порядок вывода чисел важен и однажды уже был другим:
+ *
+ *   1. требуемая скорость - растёт экспоненциально по номеру узла;
+ *   2. длительность - задана отдельной кривой, СВОЕЙ, а не выведенной;
+ *   3. объём работы - сколько знаков даёт требуемая скорость за эту
+ *      длительность;
+ *   4. цель - счёт идеальной игры на этом объёме.
+ *
+ * Раньше длительность выводилась из объёма, а объём упирался в длину
+ * фрагмента, и кривая ломалась молча: на последней десятке узлов цель
+ * переставала расти совсем, потому что упиралась в потолок текста. Теперь
+ * длина текста на цель не влияет вовсе - наоборот, текст собирается под
+ * неё (см. buildLevelText в content/texts.ts).
  */
 import { BALANCE } from './balance'
 import { scoreWord } from './scoring'
@@ -38,65 +46,170 @@ export interface LevelPlan {
   readonly reward: number
 }
 
+/** Параметры кривой. Ровно то, что крутится в админке. */
+export interface CurveParams {
+  readonly wpmFactorFrom: number
+  readonly wpmGrowthPerNode: number
+  readonly bossFactor: number
+  readonly actLength: number
+}
+
 /**
- * Требуемая скорость на шаге забега: доля от заявленной игроком, линейно
- * растущая от первого узла к последнему. Равномерный подъём читается как
- * честный, а рывок в конце — как подстава.
+ * Требуемая скорость на шаге забега: доля от заявленной игроком.
+ *
+ * Доля растёт экспоненциально, а на боссе получает надбавку. Почему именно
+ * так, а не линейно, подробно объяснено в balance.ts.
  */
 export function requiredWpm(baseWpm: BaseWpm, step: number, totalSteps: number): number {
-  const factor = lerp(BALANCE.wpmFactorFrom, BALANCE.wpmFactorTo, progress(step, totalSteps))
-  return Math.max(1, Math.round(baseWpm * factor))
-}
-
-/** Узел, с которого требуемая скорость превышает заявленную игроком. */
-export function wallStep(totalSteps: number): number {
-  const span = BALANCE.wpmFactorTo - BALANCE.wpmFactorFrom
-  if (span <= 0) return totalSteps
-  const t = (1 - BALANCE.wpmFactorFrom) / span
-  return Math.ceil(t * (totalSteps - 1))
+  return Math.max(1, Math.round(baseWpm * wpmFactor(step, totalSteps)))
 }
 
 /**
- * Сколько знаков нужно напечатать на этом шаге. Растёт медленно: основную
- * сложность несёт скорость, объём лишь не даёт поздним узлам выродиться
- * в двадцатисекундные спринты.
- */
-export function workCharsAt(step: number, totalSteps: number): number {
-  return Math.round(lerp(BALANCE.workFrom, BALANCE.workTo, progress(step, totalSteps)))
-}
-
-/** Награда за узел. Поздние узлы платят больше — иначе магазин отстаёт. */
-export function rewardAt(step: number): number {
-  return BALANCE.rewardBase + Math.floor(step * BALANCE.rewardPerStep)
-}
-
-/**
- * Граница работы: последнее слово, которое игрок должен успеть закрыть.
+ * То же самое, но от ЯВНЫХ параметров, а не от balance.ts.
  *
- * Текст никогда не расходуется целиком. Оставленный хвост — это запас на
- * ошибки: после промаха множитель падает, и до цели приходится печатать
- * дальше, чем планировалось. Без хвоста типичным поражением стало бы
- * «текст кончился», а это худшее из возможных объяснений проигрыша.
+ * Нужна админке: она показывает таблицу будущей кривой по ещё не
+ * сохранённым числам. Без этой функции пришлось бы завести вторую копию
+ * формулы в интерфейсе, а копия формулы рано или поздно расходится
+ * с оригиналом.
  */
-function workBoundary(text: string, workChars: number): { chars: number; score: number } {
+export function requiredWpmWith(
+  params: CurveParams,
+  baseWpm: BaseWpm,
+  step: number,
+  totalSteps: number,
+): number {
+  return Math.max(1, Math.round(baseWpm * wpmFactorWith(params, step, totalSteps)))
+}
+
+/**
+ * Босс — последний узел каждого акта, а также последний узел забега, даже
+ * если акт вышел неполным. Игрок обязан видеть, что упирается не в случайный
+ * узел, а в рубеж.
+ */
+export function isBossStep(
+  step: number,
+  totalSteps: number,
+  actLength: number = BALANCE.actLength,
+): boolean {
+  if (step === totalSteps - 1) return true
+  return (step + 1) % actLength === 0
+}
+
+/**
+ * Узел, с которого требуемая скорость впервые превышает заявленную игроком.
+ *
+ * Считается перебором, а не формулой: с надбавкой за босса кривая перестала
+ * быть монотонной, и первым порог переступает именно босс, а не узел за ним.
+ */
+export function wallStep(totalSteps: number): number {
+  for (let step = 0; step < totalSteps; step++) {
+    if (wpmFactor(step, totalSteps) >= 1) return step
+  }
+  return Math.max(0, totalSteps - 1)
+}
+
+/** Доля от заявленной скорости на этом шаге, вместе с надбавкой за босса. */
+function wpmFactor(step: number, totalSteps: number): number {
+  return wpmFactorWith(BALANCE, step, totalSteps)
+}
+
+/**
+ * Та же доля, но от явных параметров.
+ *
+ * Рост геометрический по НОМЕРУ узла, а не по доле пройденного забега:
+ * иначе удлинение забега молча меняло бы крутизну каждого отдельного шага,
+ * а крутить хочется именно шаг.
+ */
+export function wpmFactorWith(params: CurveParams, step: number, totalSteps: number): number {
+  const factor = params.wpmFactorFrom * Math.pow(params.wpmGrowthPerNode, step)
+  return isBossStep(step, totalSteps, params.actLength) ? factor * params.bossFactor : factor
+}
+
+/**
+ * Длительность узла. Своя кривая, не выведенная из требуемой скорости.
+ *
+ * Узлы укорачиваются к финалу, но полого: это форма узла, а не его
+ * сложность. Сложность целиком лежит на требуемой скорости.
+ */
+export function levelDurationMs(step: number, totalSteps: number): number {
+  const raw = lerp(BALANCE.levelDurationFromMs, BALANCE.levelDurationToMs, progress(step, totalSteps))
+  return Math.round(raw / BALANCE.durationRoundMs) * BALANCE.durationRoundMs
+}
+
+/**
+ * Сколько знаков нужно напечатать на этом узле идеальной игрой голыми
+ * руками. Из этого числа выводится и цель, и длина текста уровня.
+ */
+export function bareCharsAt(baseWpm: BaseWpm, step: number, totalSteps: number): number {
+  const wpm = requiredWpm(baseWpm, step, totalSteps)
+  const seconds = levelDurationMs(step, totalSteps) / 1000
+  // wpm -> знаки в минуту по стандарту «5 знаков = слово».
+  return Math.max(1, Math.round(((wpm * 5 * seconds) / 60) / BALANCE.durationSlack))
+}
+
+/**
+ * База награды за узел. Поздние узлы платят больше — иначе магазин отстаёт.
+ *
+ * Это только база: сверху ложится надбавка за запас времени, и считает её
+ * уже сам уровень (levelPayout в scoring.ts). Здесь надбавки нет намеренно -
+ * план узла составляется до того, как игрок нажал первую клавишу.
+ */
+export function rewardAt(step: number): number {
+  return rewardAtWith(BALANCE, step)
+}
+
+/** Параметры награды. Ровно то, что крутится в админке. */
+export interface RewardParams {
+  readonly rewardBase: number
+  readonly rewardPerStep: number
+}
+
+/** То же от ЯВНЫХ параметров: админке нужен предпросмотр по несохранённым. */
+export function rewardAtWith(params: RewardParams, step: number): number {
+  return params.rewardBase + Math.floor(step * params.rewardPerStep)
+}
+
+/** Сколько знаков должно быть в тексте узла, с запасом на билды через время. */
+export function levelTextCharsAt(baseWpm: BaseWpm, step: number, totalSteps: number): number {
+  return Math.ceil(bareCharsAt(baseWpm, step, totalSteps) * BALANCE.levelTextReserve)
+}
+
+/** Предохранитель от нелепого множителя, выставленного в админке. */
+const MAX_SIMULATED_WORDS = 200_000
+
+/**
+ * Счёт идеальной безошибочной игры на протяжении `chars` знаков.
+ *
+ * Слова берутся целиком: последнее, которое не влезает, не засчитывается,
+ * иначе цель оказалась бы недостижимой ровно на половину слова.
+ *
+ * Симуляция идёт ПО КРУГУ, если знаков запрошено больше, чем есть в тексте.
+ * Это принципиально: цель не имеет права упираться в длину фрагмента. Именно
+ * такой потолок раньше останавливал рост сложности на последней десятке
+ * узлов. Игроку кружить не придётся - текст уровня собирается под это же
+ * число с запасом (см. levelTextCharsAt).
+ */
+export function perfectScoreThrough(text: string, chars: number): number {
   const words = splitWords(text)
-  const limit = Math.min(workChars, Math.floor(text.length * BALANCE.maxTypedFraction))
+  if (words.length === 0) return 0
 
   let score = 0
   let mult = BALANCE.multStart
-  let chars = 0
+  let typed = 0
 
-  for (const word of words) {
-    const next = score + scoreWord((word.end - word.start) * BALANCE.chipsPerChar, mult)
+  for (let index = 0; index < MAX_SIMULATED_WORDS; index++) {
+    const word = words[index % words.length]!
+    const length = word.end - word.start
+
     // Первое слово берём всегда, иначе на коротком тексте цель вышла бы нулевой.
-    if (word.end > limit && chars > 0) break
-    score = next
-    chars = word.end
+    if (typed + length > chars && typed > 0) break
+
+    score += scoreWord(length * BALANCE.chipsPerChar, mult)
     mult += BALANCE.multPerWord
-    if (chars >= limit) break
+    typed += length
   }
 
-  return { chars, score }
+  return score
 }
 
 /** Полный набор чисел для узла забега. */
@@ -106,18 +219,10 @@ export function planLevel(
   step: number,
   totalSteps: number,
 ): LevelPlan {
-  const wpm = requiredWpm(baseWpm, step, totalSteps)
-  const { chars, score } = workBoundary(text, workCharsAt(step, totalSteps))
-
-  // wpm -> знаки в секунду по стандарту «5 знаков = слово».
-  const charsPerSecond = (wpm * 5) / 60
-  const seconds = (chars / charsPerSecond) * BALANCE.durationSlack
-
   return {
-    durationMs:
-      Math.round((seconds * 1000) / BALANCE.durationRoundMs) * BALANCE.durationRoundMs,
-    targetScore: score,
-    requiredWpm: wpm,
+    durationMs: levelDurationMs(step, totalSteps),
+    targetScore: perfectScoreThrough(text, bareCharsAt(baseWpm, step, totalSteps)),
+    requiredWpm: requiredWpm(baseWpm, step, totalSteps),
     reward: rewardAt(step),
   }
 }

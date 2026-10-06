@@ -6,9 +6,10 @@
  */
 import { create } from 'zustand'
 import { sfx } from '../audio/sfx'
+import { bossFor } from '../content/bosses'
 import { findItem, ITEMS, modifiersFor } from '../content/items'
-import { findText, TEXTS } from '../content/texts'
-import { planLevel } from '../core/difficulty'
+import { buildLevelText, findText, TEXTS } from '../content/texts'
+import { levelTextCharsAt, planLevel } from '../core/difficulty'
 import { LevelSession, type KeyOutcome } from '../core/level'
 import {
   buyItem,
@@ -82,19 +83,29 @@ function createSession(run: RunState, language: Language): LevelSession | null {
   const text = id ? findText(id) : undefined
   if (!text) return null
 
-  const variant = text.variants[language]
   // Таймер, цель и награда считаются из места узла в забеге, а не берутся
   // из текста: один и тот же фрагмент на втором и на девятом узле требует
   // разного, и это ровно то, что делает забег забегом.
-  const plan = planLevel(variant.body, run.baseWpm, run.levelIndex, run.totalLevels)
+  //
+  // Порядок обратный привычному: сначала ядро говорит, сколько знаков нужно
+  // узлу, и только потом под это число собирается текст. Так текста всегда
+  // хватает, даже если игрок собрал билд через замедление времени.
+  const minChars = levelTextCharsAt(run.baseWpm, run.levelIndex, run.totalLevels)
+  const body = buildLevelText(text.id, language, minChars)
+  const plan = planLevel(body, run.baseWpm, run.levelIndex, run.totalLevels)
+  const boss = bossFor(run.levelIndex)
 
   return new LevelSession({
-    text: variant.body,
+    text: body,
     targetScore: plan.targetScore,
     durationMs: plan.durationMs,
     reward: plan.reward,
     requiredWpm: plan.requiredWpm,
+    // Случайность предметов засеяна сидом забега и номером узла: один и тот
+    // же забег обязан разыгрывать одно и то же, иначе ни повторов, ни отладки.
+    seed: `${run.seed}:${run.levelIndex}`,
     modifiers: modifiersFor(run.items),
+    ...(boss ? { boss: boss.modifier } : {}),
   })
 }
 

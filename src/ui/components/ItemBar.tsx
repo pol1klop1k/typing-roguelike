@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { sfx } from '../../audio/sfx'
-import { findItem } from '../../content/items'
+import { findItem, type BadgeCell } from '../../content/items'
 import { BALANCE } from '../../core/balance'
-import type { ItemStatus, Language } from '../../core/types'
+import type { FireTone, ItemStatus, Language } from '../../core/types'
 
 interface ItemBarProps {
   items: readonly string[]
@@ -45,8 +45,21 @@ export function ItemBar({ items, statuses = [], language, onDrop }: ItemBarProps
     })
   }, [statuses])
 
+  // Предметы со своим состоянием на уровне: их значки рисуются отдельной
+  // полосой, а не внутри слота. В слоте шириной в пять знаков такой список
+  // нечитаем, а он нужен игроку прямо во время печати.
+  const badges = slots.flatMap((id, index) => {
+    if (id === null) return []
+    const item = findItem(id)
+    const status = statuses[index]
+    if (!item?.badge || !status) return []
+
+    const cells = item.badge(status.memory)
+    return cells.length > 0 ? [{ key: `${id}-${index}`, glyph: item.glyph, cells }] : []
+  })
+
   return (
-    <div className="flex shrink-0 items-center gap-3 border-b border-term-line px-4 py-2">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-term-line px-4 py-2">
       <span className="hidden text-[0.65rem] tracking-[0.25em] text-term-muted uppercase sm:inline">
         {labels.slots}
       </span>
@@ -66,7 +79,39 @@ export function ItemBar({ items, statuses = [], language, onDrop }: ItemBarProps
           ),
         )}
       </div>
+
+      {badges.map((badge) => (
+        <span key={badge.key} className="flex items-center gap-2">
+          <span className="text-[0.65rem] tracking-[0.2em] text-term-dim">{badge.glyph}</span>
+          <span className="flex items-center gap-1">
+            {badge.cells.map((cell, index) => (
+              <BadgeCellView key={`${cell.text}-${index}`} cell={cell} />
+            ))}
+          </span>
+        </span>
+      ))}
     </div>
+  )
+}
+
+/**
+ * Клетка значка. Яркая — то, что ещё НЕ сделано; погашенная и перечёркнутая —
+ * то, что уже есть.
+ *
+ * Направление именно такое, потому что игрок смотрит сюда с одним вопросом:
+ * что мне ещё осталось нажать. Отвечать на него должно то, что светится.
+ */
+function BadgeCellView({ cell }: { cell: BadgeCell }) {
+  return (
+    <span
+      className={`flex h-6 w-6 items-center justify-center border text-sm leading-none ${
+        cell.done
+          ? 'border-term-line text-term-dim line-through'
+          : 'glow-soft border-term-amber/60 text-term-amber'
+      }`}
+    >
+      {cell.text}
+    </span>
   )
 }
 
@@ -123,14 +168,16 @@ function FilledSlot({
       }`}
       style={{ borderColor: tone.border, color: tone.text }}
     >
-      {/* Вспышка срабатывания поверх слота. */}
+      {/* Вспышка срабатывания поверх слота. Красная означает, что предмет
+          сработал во вред: «Гильотина» на медленном слове режет множитель,
+          и по одному цвету видно, помогла она или наказала. */}
       <span
-        className="pointer-events-none absolute inset-0 bg-term-bright"
-        style={{ opacity: flash * 0.55 }}
+        className="pointer-events-none absolute inset-0"
+        style={{ opacity: flash * 0.55, backgroundColor: flashColor(status?.tone) }}
       />
 
       <span className="glow-soft relative text-sm leading-none font-bold">{item.glyph}</span>
-      <span className="relative mt-0.5 max-w-full truncate px-1 text-[0.55rem] tracking-wider text-term-muted uppercase">
+      <span className="relative mt-0.5 max-w-full truncate px-1 text-[0.55rem] tracking-wider text-term-muted">
         {text.name}
       </span>
 
@@ -164,7 +211,11 @@ function Tooltip({ name, description }: { name: string; description: string }) {
 const palette = memoizeTokens()
 
 function memoizeTokens() {
-  let cache: { ready: { text: string; border: string }; cooling: { text: string; border: string } } | null = null
+  let cache: {
+    ready: { text: string; border: string }
+    cooling: { text: string; border: string }
+    bright: string
+  } | null = null
   return () => {
     if (cache) return cache
     const token = (name: string, fallback: string): string => {
@@ -176,9 +227,16 @@ function memoizeTokens() {
     cache = {
       ready: { text: token('--color-term', '#5cff9d'), border: token('--color-term-line', '#123326') },
       cooling: { text: red, border: red },
+      bright: token('--color-term-bright', '#ccffe2'),
     }
     return cache
   }
+}
+
+/** Цвет вспышки: обычное срабатывание белое, вредное — красное. */
+function flashColor(tone: FireTone | undefined): string {
+  const { bright, cooling } = palette()
+  return tone === 'harm' ? cooling.text : bright
 }
 
 /**

@@ -14,7 +14,10 @@
  * Кулдаун живёт в ядре, а не в предмете, потому что его обязан видеть
  * интерфейс — иначе игрок не понимает, доступен предмет или нет.
  */
-import type { ItemStatus, LevelSnapshot } from './types'
+import { createRng, type Rng } from './rng'
+import type { FireTone, ItemStatus, LevelSnapshot } from './types'
+
+export type { FireTone }
 
 export type HookName =
   | 'onLevelStart'
@@ -37,8 +40,10 @@ export interface ItemApi {
    * Предмет сработал. Интерфейс подсветит его, а если указан кулдаун —
    * покажет откат. Пассивные предметы fire() не вызывают: подсвечивать
    * то, что работает всегда, значит превратить панель в мигалку.
+   *
+   * `tone` отмечает срабатывание, которое обошлось игроку дорого.
    */
-  fire(cooldownMs?: number): void
+  fire(cooldownMs?: number, tone?: FireTone): void
 }
 
 interface BaseContext {
@@ -46,6 +51,33 @@ interface BaseContext {
   /** Часы уровня. Те же, что у таймера. */
   readonly now: number
   item: ItemApi
+  /**
+   * Случайность уровня. Один генератор на уровень, засеянный от сида забега.
+   *
+   * Предмет НЕ имеет права звать Math.random: забег в роглайте обязан
+   * воспроизводиться по сиду, иначе невозможны ни повторы, ни отладка «как я
+   * вообще получил такой расклад». По этой же причине генератор один на всех
+   * предметов: порядок вызовов - часть расклада.
+   */
+  readonly rng: Rng
+  /**
+   * Очки, которые предмет начисляет НАПРЯМУЮ, минуя слово и множитель.
+   *
+   * Поле есть у каждого хука, потому что подарок счёта не привязан к
+   * завершению слова: лотерея закрывается посреди слова и даже на ошибке.
+   * Ядро прибавляет его сразу после прогона хуков и тут же проверяет победу -
+   * иначе подарок, добравший цель, заметили бы только на следующей букве.
+   */
+  bonusScore: number
+  /**
+   * Слова, с которых надо снять питание: индекс слова и на сколько.
+   *
+   * Поле есть у каждого хука по той же причине, что и bonusScore: гасить
+   * слово может и тик босса, и ошибка, и завершённое слово. Ядро забирает
+   * заявки сразу после прогона хуков и помнит их само - срок жизни погашения
+   * обязан идти по часам УРОВНЯ, а не по таймеру интерфейса.
+   */
+  blackout: { readonly wordIndex: number; readonly durationMs: number }[]
 }
 
 /**
@@ -64,10 +96,33 @@ export interface KeyCheckContext extends BaseContext {
 /** Верно напечатан символ. Можно изменить, сколько символов он принёс. */
 export interface CharCorrectContext extends BaseContext {
   readonly char: string
+  /**
+   * Что игрок нажал физически. Отличается от char, когда нажатие простил
+   * предмет: текст ждал строчную, а игрок попал по заглавной.
+   *
+   * Поле нужно предметам, которым важен не текст, а сам ввод: они считают
+   * не то, что написано, а то, как это набрали.
+   */
+  readonly key: string
   readonly isDigit: boolean
   readonly isUpperCase: boolean
   readonly isPunctuation: boolean
   chips: number
+  /**
+   * Символ поставил предмет, а не игрок.
+   *
+   * Предмет, который дописывает текст за игрока, обязан проверять этот флаг,
+   * иначе сработает на своей же работе. Ядро на такие символы не наращивает
+   * ни комбо, ни число верных нажатий: скорость и точность в итогах меряют
+   * пальцы игрока, и врать о них нельзя (см. правило 4 в architecture.md).
+   */
+  readonly auto: boolean
+  /**
+   * Просьба дописать текущее слово до конца. Ядро дописывает остаток теми же
+   * символами, что стоят в тексте, прогоняя каждый через onCharCorrect с
+   * auto: true - поэтому предметы, дающие символы за знак, их тоже видят.
+   */
+  completeWord: boolean
 }
 
 /**
@@ -87,8 +142,27 @@ export interface CharErrorContext extends BaseContext {
 export interface ScoreCalcContext extends BaseContext {
   readonly word: string
   readonly cleanWord: boolean
+  /**
+   * Сколько заняло само слово: от первого засчитанного символа до пробела
+   * за ним. Считается по часам уровня, то есть уже с учётом замедления.
+   */
+  readonly wordElapsedMs: number
   chips: number
+  /**
+   * Общий множитель игрока. Правка ЗДЕСЬ остаётся с игроком и дальше:
+   * это тот самый множитель, который копится по ходу уровня.
+   */
   mult: number
+  /**
+   * Надбавка только на это слово. Умножается на mult при подсчёте очков и
+   * тут же забывается.
+   *
+   * Поле существует потому, что без него разовый бонус пришлось бы вносить
+   * в mult и вычитать обратно в onWordComplete. Предмет, который умножает
+   * множитель на четыре за одно слово, не должен оставлять игроку
+   * четырёхкратный множитель навсегда.
+   */
+  wordMult: number
 }
 
 /** Слово уже засчитано. Здесь удобно раздавать множитель. */
@@ -111,9 +185,23 @@ export interface TickContext extends BaseContext {
   addTimeMs: number
 }
 
-/** Уровень начинается. Здесь задаётся стартовый множитель. */
+/** Уровень начинается. Здесь задаётся стартовый множитель и ход часов. */
 export interface LevelStartContext extends BaseContext {
+  /**
+   * Текст узла целиком. Нужен предметам, которые смотрят, ЧТО придётся
+   * печатать: лотерея по нему определяет язык и алфавит.
+   */
+  readonly text: string
   mult: number
+  /**
+   * Во сколько раз часы уровня идут медленнее реальных. 1 - обычный ход.
+   *
+   * Замедление объявляется один раз на старте и дальше живёт в ядре,
+   * потому что по этим часам обязаны идти ВСЕ механики уровня разом:
+   * таймер, откаты предметов, окно после ошибки, время слова. Иначе
+   * замедление лечило бы таймер и ломало всё остальное.
+   */
+  timeScale: number
 }
 
 export interface HookContexts {
@@ -129,7 +217,10 @@ export interface HookContexts {
 }
 
 /** Часть контекста, которую заполняет ядро. Остальное подставляет рантайм. */
-export type HookPayload<K extends HookName> = Omit<HookContexts[K], 'item'> & { item?: ItemApi }
+export type HookPayload<K extends HookName> = Omit<
+  HookContexts[K],
+  'item' | 'rng' | 'bonusScore' | 'blackout'
+> & { item?: ItemApi }
 
 /**
  * Предмет, босс или модификатор уровня. Всё это одна и та же структура —
@@ -152,6 +243,7 @@ interface Slot {
   readonly modifier: Modifier
   memory: Record<string, number>
   firedAt: number | null
+  firedTone: FireTone
   readyAt: number
   cooldownMs: number
 }
@@ -165,12 +257,19 @@ interface Slot {
  */
 export class ModifierRuntime {
   private readonly slots: readonly Slot[]
+  private readonly rng: Rng
 
-  constructor(modifiers: readonly Modifier[]) {
+  /**
+   * Генератор по умолчанию засеян нулём, а не временем: тест, который не
+   * передал сид, обязан вести себя одинаково от запуска к запуску.
+   */
+  constructor(modifiers: readonly Modifier[], rng: Rng = createRng(0)) {
+    this.rng = rng
     this.slots = modifiers.map((modifier) => ({
       modifier,
       memory: { ...(modifier.memory ?? {}) },
       firedAt: null,
+      firedTone: 'plain',
       readyAt: 0,
       cooldownMs: 0,
     }))
@@ -178,6 +277,11 @@ export class ModifierRuntime {
 
   run<K extends HookName>(hook: K, now: number, payload: HookPayload<K>): HookContexts[K] {
     const context = payload as HookContexts[K]
+    // Общее для всех хуков рантайм подставляет сам: ядру не нужно помнить
+    // об этом в девяти местах вызова.
+    ;(context as { rng: Rng }).rng = this.rng
+    context.bonusScore = 0
+    context.blackout = []
 
     for (const slot of this.slots) {
       const handler = slot.modifier.hooks[hook]
@@ -188,8 +292,9 @@ export class ModifierRuntime {
       context.item = {
         memory: slot.memory,
         ready: now >= slot.readyAt,
-        fire: (cooldownMs = 0) => {
+        fire: (cooldownMs = 0, tone: FireTone = 'plain') => {
           slot.firedAt = now
+          slot.firedTone = tone
           slot.cooldownMs = cooldownMs
           slot.readyAt = now + cooldownMs
         },
@@ -204,9 +309,13 @@ export class ModifierRuntime {
   statuses(now: number): readonly ItemStatus[] {
     return this.slots.map((slot) => ({
       id: slot.modifier.id,
+      // Копия, а не сама память: интерфейс читает её каждый кадр, и править
+      // состояние предмета из компонента он не должен.
+      memory: { ...slot.memory },
       cooldownLeftMs: Math.max(0, slot.readyAt - now),
       cooldownTotalMs: slot.cooldownMs,
       sinceFiredMs: slot.firedAt === null ? null : now - slot.firedAt,
+      tone: slot.firedTone,
     }))
   }
 }

@@ -99,3 +99,149 @@ body {
   background: var(--color-term-dim);
   color: var(--color-term-bright);
 }
+
+/*
+ * Ступени редкости предметов.
+ *
+ * Лестница читается без чтения: чем выше ступень, тем ярче текст и тем
+ * беспокойнее он себя ведёт. Серийное намеренно мёртвое - плоский серый
+ * без свечения, единственная надпись в интерфейсе, которая не светится
+ * вообще. Неучтённого в ведомостях нет, поэтому оно и выглядит как сбой
+ * отображения, а не как надпись.
+ */
+.rarity-serial {
+  color: #6b7280;
+}
+
+.rarity-offspec {
+  color: #e8eef2;
+}
+
+.rarity-prototype {
+  color: #ffffff;
+  text-shadow:
+    0 0 4px color-mix(in srgb, #ffffff 60%, transparent),
+    0 0 10px color-mix(in srgb, #ffffff 30%, transparent);
+}
+
+.rarity-classified {
+  color: var(--color-term-amber);
+  text-shadow:
+    0 0 4px currentColor,
+    0 0 14px color-mix(in srgb, currentColor 55%, transparent);
+}
+
+.rarity-unlogged {
+  position: relative;
+  display: inline-block;
+  color: var(--color-term-red);
+  text-shadow:
+    0 0 4px currentColor,
+    0 0 16px color-mix(in srgb, currentColor 60%, transparent);
+  animation: rarity-flicker 3.7s steps(1, end) infinite;
+}
+
+/* Два смещённых двойника поверх надписи: почти всё время они срезаны
+   полностью и появляются рывками на доли секунды. */
+.rarity-unlogged::before,
+.rarity-unlogged::after {
+  content: attr(data-text);
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  text-shadow: none;
+}
+
+.rarity-unlogged::before {
+  color: #35e7ff;
+  animation: rarity-glitch-a 3.7s steps(1, end) infinite;
+}
+
+.rarity-unlogged::after {
+  color: #ff2d55;
+  animation: rarity-glitch-b 3.7s steps(1, end) infinite;
+}
+
+@keyframes rarity-flicker {
+  0%, 84%, 100% { opacity: 1; }
+  85% { opacity: 0.45; }
+  86% { opacity: 1; }
+  93% { opacity: 0.7; }
+  94% { opacity: 1; }
+}
+
+@keyframes rarity-glitch-a {
+  0%, 82%, 100% { clip-path: inset(100% 0 0 0); transform: translate(0, 0); }
+  83% { clip-path: inset(8% 0 62% 0); transform: translate(-2px, 0); }
+  86% { clip-path: inset(48% 0 28% 0); transform: translate(2px, 0); }
+  92% { clip-path: inset(70% 0 8% 0); transform: translate(-1px, 0); }
+}
+
+@keyframes rarity-glitch-b {
+  0%, 80%, 100% { clip-path: inset(100% 0 0 0); transform: translate(0, 0); }
+  84% { clip-path: inset(30% 0 46% 0); transform: translate(2px, 0); }
+  88% { clip-path: inset(62% 0 18% 0); transform: translate(-2px, 0); }
+  95% { clip-path: inset(14% 0 68% 0); transform: translate(1px, 0); }
+}
+
+/* Кому анимация мешает — тому ровный красный без дёрганья. */
+@media (prefers-reduced-motion: reduce) {
+  .rarity-unlogged,
+  .rarity-unlogged::before,
+  .rarity-unlogged::after {
+    animation: none;
+  }
+
+  .rarity-unlogged::before,
+  .rarity-unlogged::after {
+    content: none;
+  }
+}
+
+/*
+ * Снятие питания с букв: пиксели моргают и гаснут.
+ *
+ * Шаговая, а не плавная: умирающий люминофор дёргается, а не затухает.
+ * Конечное состояние держится forwards, поэтому слово остаётся тёмным,
+ * пока класс не снимут - а снимает его ядро, по часам уровня.
+ *
+ * Это единственная анимация в игре, которая живёт не от чисел среза.
+ * Причина: текст лежит под memo и перерисовывается от движения курсора,
+ * а не каждый кадр. Считать по кадрам прозрачность трёхсот букв значило бы
+ * убить memo ради полусекундного моргания.
+ */
+@keyframes powerdown {
+  0% { opacity: 1; }
+  10% { opacity: 0.12; }
+  18% { opacity: 0.9; }
+  32% { opacity: 0.06; }
+  44% { opacity: 0.5; }
+  58% { opacity: 0.04; }
+  72% { opacity: 0.22; }
+  100% { opacity: 0; }
+}
+
+.powerdown {
+  animation: powerdown 0.5s steps(1, end) forwards;
+}
+
+/*
+ * Буква, которую ядро дописало за игрока.
+ *
+ * backwards обязателен: до своей задержки буква держит нулевой кадр, то есть
+ * невидима. Поэтому слово печатается само, буква за буквой, а не появляется
+ * целиком. Задержку каждой буквы считает компонент - она равна длине
+ * остановки, поделённой на число букв.
+ *
+ * Как и powerdown, это css, а не счёт по кадрам: текст лежит под memo.
+ */
+@keyframes autofill {
+  0% { opacity: 0; }
+  1% { opacity: 1; color: var(--color-term-hot); }
+  55% { opacity: 1; color: var(--color-term-hot); }
+  100% { opacity: 1; }
+}
+
+.autofilled {
+  animation: autofill 0.4s steps(1, end) backwards;
+}

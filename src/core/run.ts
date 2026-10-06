@@ -10,8 +10,8 @@
  * Это и есть граница между ядром и контентом.
  */
 import { BALANCE } from './balance'
-import { createRng } from './rng'
-import type { BaseWpm } from './types'
+import { createRng, type Rng } from './rng'
+import type { BaseWpm, Rarity } from './types'
 
 export type RunPhase =
   /** Идёт уровень (или показываются его итоги). */
@@ -45,16 +45,21 @@ export interface RunState {
   readonly phase: RunPhase
 }
 
-/** Фрагмент лора в том виде, в каком забег его знает: id и номер журнала. */
+/** Фрагмент лора в том виде, в каком забег его знает: id и слот линии. */
 export interface TextEntry {
   readonly id: string
-  readonly order: number
+  /** Место в истории. У одного слота несколько взаимозаменяемых текстов. */
+  readonly slot: number
+  /** Забег всегда берёт именно его. Так закреплена запись босса. */
+  readonly pinned?: boolean
 }
 
-/** Предмет в том виде, в каком забег его знает: id, цена и уникальность. */
+/** Предмет в том виде, в каком забег его знает: id, цена, редкость. */
 export interface ShopEntry {
   readonly id: string
   readonly price: number
+  /** Насколько часто вещь попадает на витрину. Веса лежат в balance.ts. */
+  readonly rarity: Rarity
   /** Второй экземпляр бесполезен, поэтому витрина его не предлагает. */
   readonly unique?: boolean
 }
@@ -62,18 +67,40 @@ export interface ShopEntry {
 /**
  * Набор узлов забега.
  *
- * Сначала случайная выборка из запаса, потом сортировка по номеру журнала.
- * Порядок именно такой: выборка делает каждый забег непохожим на прошлый,
- * сортировка не даёт истории скакать назад. Если запас меньше нужного,
- * берём сколько есть - забег просто выйдет короче.
+ * Линия сюжета - это не список текстов, а список СЛОТОВ: позиций с
+ * закреплённым местом в истории. У слота несколько взаимозаменяемых
+ * вариантов, и забег берёт из каждого ровно один.
+ *
+ * Такой способ выбран вместо случайной выборки из общего запаса по одной
+ * причине: выборка ломала историю. Она могла вытянуть последствие без
+ * причины, а половину забега набрать из первого акта, и связный сюжет
+ * превращался в набор открыток. Слоты дают и то и другое сразу - форма
+ * забега постоянна, а слова каждый раз новые.
+ *
+ * Слотов больше длины забега - берём первые: линию обрывают с конца, а не
+ * с середины. Меньше - забег просто выйдет короче.
  */
 export function pickLevels(seed: number, pool: readonly TextEntry[], count: number): string[] {
   const rng = createRng(seed)
-  return rng
-    .shuffle(pool)
+
+  const bySlot = new Map<number, TextEntry[]>()
+  for (const entry of pool) {
+    const variants = bySlot.get(entry.slot)
+    if (variants) variants.push(entry)
+    else bySlot.set(entry.slot, [entry])
+  }
+
+  return [...bySlot.entries()]
+    .sort(([a], [b]) => a - b)
     .slice(0, count)
-    .sort((a, b) => a.order - b.order)
-    .map((entry) => entry.id)
+    .map(([, variants]) => {
+      // Закреплённый вариант обходит жребий: узел босса обязан быть про то,
+      // с чем игрок на нём воюет, а наугад нужный текст выпадал бы в одном
+      // забеге из шести. Если закреплённых почему-то два, берётся первый -
+      // лишь бы выбор остался однозначным.
+      const pinned = variants.find((variant) => variant.pinned)
+      return (pinned ?? rng.pick(variants)).id
+    })
 }
 
 export function startRun(seed: number, baseWpm: BaseWpm, pool: readonly TextEntry[]): RunState {
@@ -104,7 +131,38 @@ export function currentLevelId(run: RunState): string | null {
 export function rollOffers(run: RunState, pool: readonly ShopEntry[]): readonly string[] {
   const rng = createRng(run.seed ^ (run.levelIndex * 7919) ^ (run.rerolls * 104729))
   const available = pool.filter((entry) => !(entry.unique && run.items.includes(entry.id)))
-  return rng.shuffle(available).slice(0, BALANCE.shopOffers).map((entry) => entry.id)
+  return drawByRarity(rng, available, BALANCE.shopOffers).map((entry) => entry.id)
+}
+
+/**
+ * Достаёт из запаса нужное число РАЗНЫХ предметов с оглядкой на редкость.
+ *
+ * Выбор идёт по одному и без возврата: взятый предмет выбывает, и веса
+ * пересчитываются. Иначе витрина из четырёх мест могла бы предложить один
+ * и тот же предмет дважды, а это выглядит как ошибка, а не как удача.
+ */
+function drawByRarity(rng: Rng, pool: readonly ShopEntry[], count: number): ShopEntry[] {
+  const rest = [...pool]
+  const drawn: ShopEntry[] = []
+
+  while (drawn.length < count && rest.length > 0) {
+    const total = rest.reduce((sum, entry) => sum + BALANCE.rarityWeights[entry.rarity], 0)
+
+    let index = rest.length - 1
+    let roll = rng.next() * total
+    for (let i = 0; i < rest.length; i++) {
+      roll -= BALANCE.rarityWeights[rest[i]!.rarity]
+      if (roll <= 0) {
+        index = i
+        break
+      }
+    }
+
+    drawn.push(rest[index]!)
+    rest.splice(index, 1)
+  }
+
+  return drawn
 }
 
 /** Уровень взят: кредиты начислены, дальше магазин или конец забега. */
